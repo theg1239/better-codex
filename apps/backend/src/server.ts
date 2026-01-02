@@ -9,6 +9,8 @@ import { AnalyticsStore } from './analytics/store'
 import { AnalyticsService } from './analytics/service'
 import { ThreadIndexStore } from './thread-index/store'
 import { ThreadIndexService, type ThreadListItem } from './thread-index/service'
+import { ReviewService } from './reviews/service'
+import { ReviewStore } from './reviews/store'
 import type { WsEvent, WsRequest, WsResponse } from './ws/messages'
 
 const config = loadConfig()
@@ -22,6 +24,8 @@ const analytics = new AnalyticsService(new AnalyticsStore(join(config.dataDir, '
 analytics.init()
 const threadIndex = new ThreadIndexService(new ThreadIndexStore(join(config.dataDir, 'threads.sqlite')))
 threadIndex.init()
+const reviews = new ReviewService(new ReviewStore(join(config.dataDir, 'reviews.sqlite')))
+reviews.init()
 
 type WsClient = { send: (data: string) => void; id: string }
 
@@ -55,6 +59,22 @@ const app = new Elysia()
     }
   )
   .get('/profiles', () => ({ profiles: profileStore.list() }))
+  .get(
+    '/reviews',
+    ({ query }) => {
+      const profileId = typeof query.profileId === 'string' ? query.profileId : undefined
+      const limit = Number(query.limit ?? 100)
+      const offset = Number(query.offset ?? 0)
+      return { sessions: reviews.list({ profileId, limit, offset }) }
+    },
+    {
+      query: t.Object({
+        profileId: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+        offset: t.Optional(t.String()),
+      }),
+    }
+  )
   .post(
     '/profiles',
     async ({ body }) => {
@@ -403,6 +423,40 @@ const app = new Elysia()
   })
 
 supervisor.on('notification', (event) => {
+  if (event.method === 'item/started' && event.params && typeof event.params === 'object') {
+    const { threadId, turnId, item } = event.params as {
+      threadId?: string
+      turnId?: string
+      item?: { id?: string; type?: string; review?: string }
+    }
+    if (threadId && item?.type === 'enteredReviewMode') {
+      const sessionId = turnId ?? item.id ?? `${threadId}-${Date.now()}`
+      reviews.upsert({
+        id: sessionId,
+        threadId,
+        profileId: event.profileId,
+        label: typeof item.review === 'string' ? item.review : 'Review',
+        status: 'running',
+        startedAt: Date.now(),
+        completedAt: null,
+        model: null,
+        cwd: null,
+        review: null,
+      })
+    }
+  }
+  if (event.method === 'item/completed' && event.params && typeof event.params === 'object') {
+    const { turnId, item } = event.params as {
+      turnId?: string
+      item?: { id?: string; type?: string; review?: string }
+    }
+    if (item?.type === 'exitedReviewMode') {
+      const sessionId = turnId ?? item.id
+      if (sessionId) {
+        reviews.complete(sessionId, typeof item.review === 'string' ? item.review : null, Date.now())
+      }
+    }
+  }
   if (event.method === 'thread/started') {
     const thread = (event.params as { thread?: ThreadListItem })?.thread
     threadIndex.recordThreadStart(event.profileId, thread)

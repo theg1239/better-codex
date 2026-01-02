@@ -27,6 +27,19 @@ export type ThreadSearchResult = {
   lastSeenAt: number | null
 }
 
+export type ReviewSessionResult = {
+  id: string
+  threadId: string
+  profileId: string
+  label: string | null
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  startedAt: number
+  completedAt: number | null
+  model: string | null
+  cwd: string | null
+  review: string | null
+}
+
 type WsEvent =
   | {
       type: 'rpc.event'
@@ -245,6 +258,19 @@ class HubClient {
     }
     const data = (await response.json()) as { threads?: ThreadSearchResult[] }
     return data.threads ?? []
+  }
+
+  async listReviews(params?: { profileId?: string; limit?: number; offset?: number }): Promise<ReviewSessionResult[]> {
+    const url = new URL('/reviews', HUB_URL)
+    if (params?.profileId) url.searchParams.set('profileId', params.profileId)
+    if (params?.limit) url.searchParams.set('limit', String(params.limit))
+    if (params?.offset) url.searchParams.set('offset', String(params.offset))
+    const response = await fetch(url.toString())
+    if (!response.ok) {
+      throw new Error('Failed to load reviews')
+    }
+    const data = (await response.json()) as { sessions?: ReviewSessionResult[] }
+    return data.sessions ?? []
   }
 
   async request(profileId: string, method: string, params?: unknown): Promise<unknown> {

@@ -2,16 +2,10 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAppStore } from '../../store'
 import { hubClient } from '../../services/hub-client'
 import { Icons, Button, Select, Input, Markdown } from '../ui'
-import type { Message, ReviewSession } from '../../types'
+import type { Message } from '../../types'
 import { buildSystemMessage } from '../../utils/item-format'
 
 const CWD_MAX_RESULTS = 8
-const REVIEW_SEED_LIMIT = 25
-
-type ThreadListResult = {
-  data?: Array<{ id: string; preview?: string; modelProvider?: string; createdAt?: number }>
-}
-
 type ThreadResumeResult = {
   thread?: {
     turns?: TurnData[]
@@ -179,9 +173,6 @@ export function ReviewsView() {
   const reviewMessages = selectedReview?.threadId ? messages[selectedReview.threadId] ?? [] : []
   const hasReviewStream = reviewMessages.length > 0
   const resumeInFlight = useRef<Set<string>>(new Set())
-  const scanInFlight = useRef<Set<string>>(new Set())
-  const scannedProfiles = useRef<Set<string>>(new Set())
-  const scanCursor = useRef(0)
 
   useEffect(() => {
     if (!selectedAccountId || connectionStatus !== 'connected' || cwdRoot) {
@@ -273,80 +264,39 @@ export function ReviewsView() {
       return
     }
 
-    const onlineAccounts = accounts.filter((account) => account.status === 'online')
-    if (!onlineAccounts.length) {
-      return
-    }
-
     let cancelled = false
 
-    const seedReviewsForAccount = async (profileId: string) => {
-      scanInFlight.current.add(profileId)
-      let seeded = false
+    const loadReviews = async () => {
       try {
-        const listResult = (await hubClient.request(profileId, 'thread/list', {
-          limit: REVIEW_SEED_LIMIT,
-        })) as ThreadListResult
-        const threads = listResult.data ?? []
-        const startedAt = (createdAt?: number) => (createdAt ? createdAt * 1000 : Date.now())
-
-        for (const thread of threads) {
-          if (cancelled) {
-            return
-          }
-          const resumeResult = (await hubClient.request(profileId, 'thread/resume', {
-            threadId: thread.id,
-          })) as ThreadResumeResult
-          const resumeThread = resumeResult.thread
-          if (!resumeThread?.turns?.length) {
-            continue
-          }
-
-          const sessions = buildReviewSessionsFromTurns(resumeThread.turns, {
-            profileId,
-            threadId: thread.id,
-            preview: thread.preview ?? 'Code Review',
-            model: resumeResult.model ?? thread.modelProvider ?? undefined,
-            cwd: resumeResult.cwd ?? undefined,
-            startedAt: startedAt(thread.createdAt),
-          })
-
-          sessions.forEach((session) => {
-            upsertReviewSession(session)
-          })
-        }
-        seeded = true
-      } catch (error) {
-        console.warn('[Reviews] Failed to seed review sessions', error)
-      } finally {
-        scanInFlight.current.delete(profileId)
-        if (seeded) {
-          scannedProfiles.current.add(profileId)
-        }
-      }
-    }
-
-    const runSeed = async () => {
-      const cursor = scanCursor.current + 1
-      scanCursor.current = cursor
-
-      for (const account of onlineAccounts) {
-        if (cancelled || scanCursor.current !== cursor) {
+        const sessions = await hubClient.listReviews({ limit: 200 })
+        if (cancelled) {
           return
         }
-        if (scannedProfiles.current.has(account.id) || scanInFlight.current.has(account.id)) {
-          continue
-        }
-        await seedReviewsForAccount(account.id)
+        sessions.forEach((session) => {
+          upsertReviewSession({
+            id: session.id,
+            threadId: session.threadId,
+            profileId: session.profileId,
+            model: session.model ?? undefined,
+            cwd: session.cwd ?? undefined,
+            status: session.status,
+            startedAt: session.startedAt,
+            completedAt: session.completedAt ?? undefined,
+            label: session.label ?? undefined,
+            review: session.review ?? undefined,
+          })
+        })
+      } catch (error) {
+        console.warn('[Reviews] Failed to load review sessions', error)
       }
     }
 
-    runSeed()
+    loadReviews()
 
     return () => {
       cancelled = true
     }
-  }, [accounts, connectionStatus, upsertReviewSession])
+  }, [connectionStatus, upsertReviewSession])
 
   useEffect(() => {
     const query = projectPath.trim()
@@ -806,61 +756,6 @@ function resolveProjectPath(input: string, root: string): string {
   return normalizeJoin(root, trimmed)
 }
 
-function buildReviewSessionsFromTurns(
-  turns: TurnData[] = [],
-  meta: {
-    profileId: string
-    threadId: string
-    preview: string
-    model?: string
-    cwd?: string
-    startedAt: number
-  }
-): ReviewSession[] {
-  const sessions: ReviewSession[] = []
-  const baseLabel = meta.cwd ? projectLabel(meta.cwd) : meta.preview || 'Code Review'
-
-  turns.forEach((turn) => {
-    let enteredLabel = ''
-    let reviewOutput = ''
-    let sawReview = false
-
-    turn.items?.forEach((item) => {
-      if (item.type === 'enteredReviewMode') {
-        sawReview = true
-        if (typeof item.review === 'string') {
-          enteredLabel = item.review
-        }
-      }
-      if (item.type === 'exitedReviewMode') {
-        sawReview = true
-        if (typeof item.review === 'string') {
-          reviewOutput = item.review
-        }
-      }
-    })
-
-    if (!sawReview) {
-      return
-    }
-
-    const label = enteredLabel ? `${baseLabel} · ${enteredLabel}` : baseLabel
-    sessions.push({
-      id: turn.id ?? `${meta.threadId}-${meta.startedAt}`,
-      threadId: meta.threadId,
-      profileId: meta.profileId,
-      model: meta.model,
-      cwd: meta.cwd,
-      status: reviewOutput ? 'completed' : 'running',
-      startedAt: meta.startedAt,
-      completedAt: reviewOutput ? Date.now() : undefined,
-      label,
-      review: reviewOutput || undefined,
-    })
-  })
-
-  return sessions
-}
 
 function handleCwdKeyDown(
   event: React.KeyboardEvent<HTMLInputElement>,
