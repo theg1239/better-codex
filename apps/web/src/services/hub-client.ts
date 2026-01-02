@@ -1,4 +1,4 @@
-import { HUB_TOKEN, HUB_URL } from '../config'
+import { getHubToken, HUB_URL } from '../config'
 
 export type HubProfile = {
   id: string
@@ -128,11 +128,12 @@ class HubClient {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return
     }
-    if (!HUB_TOKEN) {
-      throw new Error('Missing VITE_CODEX_HUB_TOKEN')
+    const token = await getHubToken()
+    if (!token) {
+      throw new Error('Missing hub token - backend may not be running')
     }
 
-    const ws = new WebSocket(toWsUrl(HUB_URL, HUB_TOKEN))
+    const ws = new WebSocket(toWsUrl(HUB_URL, token))
     this.ws = ws
 
     ws.onmessage = (event) => {

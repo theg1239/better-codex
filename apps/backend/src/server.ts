@@ -39,6 +39,7 @@ const sendWsEvent = (event: WsEvent) => {
 const app = new Elysia()
   .use(cors({ origin: true }))
   .get('/health', () => ({ ok: true }))
+  .get('/config', () => ({ token: config.authToken }))
   .get(
     '/analytics/daily',
     ({ query }) => {
