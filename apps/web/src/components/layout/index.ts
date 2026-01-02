@@ -1,5 +1,6 @@
 export { Sidebar } from './side-bar'
 export { ThreadList } from './thread-list'
 export { SessionView } from './session-view'
+export { AnalyticsView } from './analytics-view'
 export { VirtualizedMessageList } from './virtualized-message-list'
 export { AccountUsagePanel } from './account-usage-panel'

@@ -28,6 +28,7 @@ interface AppState {
   
   activeTab: TabType
   isSidebarCollapsed: boolean
+  showAnalytics: boolean
   
   isMobileSidebarOpen: boolean
   isMobileThreadListOpen: boolean
@@ -73,6 +74,7 @@ interface AppState {
   
   setActiveTab: (tab: TabType) => void
   toggleSidebar: () => void
+  setShowAnalytics: (show: boolean) => void
   setConnectionStatus: (status: AppState['connectionStatus']) => void
   
   setMobileSidebarOpen: (open: boolean) => void
@@ -103,6 +105,7 @@ export const useAppStore = create<AppState>((set) => ({
   approvals: [],
   activeTab: 'sessions',
   isSidebarCollapsed: false,
+  showAnalytics: false,
   isMobileSidebarOpen: false,
   isMobileThreadListOpen: false,
 
@@ -491,6 +494,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
+  setShowAnalytics: (show) => set({ showAnalytics: show }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   
   setMobileSidebarOpen: (open) => set({ isMobileSidebarOpen: open }),

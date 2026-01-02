@@ -39,6 +39,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     removeAccount,
     updateAccount,
     connectionStatus,
+    showAnalytics,
+    setShowAnalytics,
   } = useAppStore()
 
   const getStatusColor = (status: 'online' | 'degraded' | 'offline') => {
@@ -344,10 +346,27 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         <div className="mt-4">
           <SectionHeader>Workspaces</SectionHeader>
           <div className="space-y-0.5">
-            <NavItem icon={<Icons.Grid className="w-4 h-4" />} label="Multi-account" active />
+            <NavItem 
+              icon={<Icons.Grid className="w-4 h-4" />} 
+              label="Multi-account" 
+              active={!showAnalytics}
+              onClick={() => {
+                setShowAnalytics(false)
+                onNavigate?.()
+              }}
+            />
             <NavItem icon={<Icons.Clipboard className="w-4 h-4" />} label="Reviews" />
             <NavItem icon={<Icons.Archive className="w-4 h-4" />} label="Archives" />
             <NavItem icon={<Icons.Bolt className="w-4 h-4" />} label="Automations" />
+            <NavItem 
+              icon={<Icons.BarChart className="w-4 h-4" />} 
+              label="Analytics" 
+              active={showAnalytics}
+              onClick={() => {
+                setShowAnalytics(true)
+                onNavigate?.()
+              }}
+            />
           </div>
         </div>
       </div>
@@ -371,9 +390,11 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   )
 }
 
-function NavItem({ icon, label, active = false }: { icon: React.ReactNode; label: string; active?: boolean }) {
+function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode; label: string; active?: boolean; onClick?: () => void }) {
   return (
-    <button className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors text-left ${
+    <button 
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg transition-colors text-left ${
       active 
         ? 'bg-bg-elevated border border-border' 
         : 'hover:bg-bg-hover border border-transparent'

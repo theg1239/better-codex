@@ -5,6 +5,8 @@ import { join, extname, basename } from 'node:path'
 import { loadConfig } from './config'
 import { CodexSupervisor } from './services/supervisor'
 import { ProfileStore } from './services/profile-store'
+import { AnalyticsStore } from './analytics/store'
+import { AnalyticsService } from './analytics/service'
 import type { WsEvent, WsRequest, WsResponse } from './ws/messages'
 
 const config = loadConfig()
@@ -14,6 +16,8 @@ await profileStore.init()
 await profileStore.ensureDefault(config.defaultCodexHome)
 
 const supervisor = new CodexSupervisor(config)
+const analytics = new AnalyticsService(new AnalyticsStore(join(config.dataDir, 'analytics.sqlite')))
+analytics.init()
 
 type WsClient = { send: (data: string) => void; id: string }
 
@@ -27,6 +31,25 @@ const sendWsEvent = (event: WsEvent) => {
 const app = new Elysia()
   .use(cors({ origin: true }))
   .get('/health', () => ({ ok: true }))
+  .get(
+    '/analytics/daily',
+    ({ query }) => {
+      const metric = typeof query.metric === 'string' ? query.metric : 'turns_started'
+      const profileId = typeof query.profileId === 'string' ? query.profileId : undefined
+      const model = typeof query.model === 'string' ? query.model : undefined
+      const days = Number(query.days ?? 365)
+      const series = analytics.getDailySeries(metric, profileId, model, Number.isFinite(days) ? days : 365)
+      return { metric, series }
+    },
+    {
+      query: t.Object({
+        metric: t.Optional(t.String()),
+        profileId: t.Optional(t.String()),
+        model: t.Optional(t.String()),
+        days: t.Optional(t.String()),
+      }),
+    }
+  )
   .get('/profiles', () => ({ profiles: profileStore.list() }))
   .post(
     '/profiles',
@@ -240,11 +263,21 @@ const app = new Elysia()
 
       if (payload.type === 'rpc.request') {
         try {
+          analytics.trackRpcRequest({
+            profileId: payload.profileId,
+            method: payload.method,
+            params: payload.params,
+          })
           const result = await supervisor.request(
             payload.profileId,
             payload.method,
             payload.params
           )
+          analytics.trackRpcResponse({
+            profileId: payload.profileId,
+            method: payload.method,
+            result,
+          })
           const response: WsResponse = {
             type: 'rpc.response',
             requestId: payload.requestId,
@@ -252,6 +285,11 @@ const app = new Elysia()
           }
           ws.send(JSON.stringify(response))
         } catch (error) {
+          analytics.trackRpcResponse({
+            profileId: payload.profileId,
+            method: payload.method,
+            error: error instanceof Error ? error.message : 'Request failed',
+          })
           const response: WsResponse = {
             type: 'rpc.response',
             requestId: payload.requestId,
@@ -263,12 +301,18 @@ const app = new Elysia()
       }
 
       if (payload.type === 'rpc.response') {
+        analytics.trackApprovalDecision(payload.profileId, payload.id, payload.result, payload.error ?? null)
         supervisor.respond(payload.profileId, payload.id, payload.result, payload.error)
       }
     },
   })
 
 supervisor.on('notification', (event) => {
+  analytics.trackRpcEvent({
+    profileId: event.profileId,
+    method: event.method,
+    params: event.params,
+  })
   const wsEvent: WsEvent = {
     type: 'rpc.event',
     profileId: event.profileId,
@@ -279,6 +323,12 @@ supervisor.on('notification', (event) => {
 })
 
 supervisor.on('serverRequest', (event) => {
+  analytics.trackServerRequest({
+    profileId: event.profileId,
+    id: event.id,
+    method: event.method,
+    params: event.params,
+  })
   const wsEvent: WsEvent = {
     type: 'rpc.serverRequest',
     profileId: event.profileId,

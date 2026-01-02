@@ -96,11 +96,10 @@ export function Select({
     <div 
       className="fixed bg-bg-secondary border border-border rounded-lg shadow-xl z-[9999] overflow-hidden"
       style={{
-        top: `${dropdownPosition.top - 4}px`,
+        top: `${dropdownPosition.top + buttonRef.current!.offsetHeight + 4}px`,
         left: `${dropdownPosition.left}px`,
         minWidth: `${dropdownPosition.width}px`,
         maxWidth: '280px',
-        transform: 'translateY(-100%)',
       }}
     >
       <div className="max-h-[200px] overflow-y-auto py-1">

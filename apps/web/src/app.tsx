@@ -1,4 +1,4 @@
-import { Sidebar, ThreadList, SessionView } from './components'
+import { Sidebar, ThreadList, SessionView, AnalyticsView } from './components'
 import { StartupLoader } from './components/loading/startup-loader'
 import { MobileHeader } from './components/layout/mobile-header'
 import { MobileDrawer } from './components/ui'
@@ -20,6 +20,7 @@ function App() {
     setMobileThreadListOpen,
     closeMobileDrawers,
     setSelectedThreadId,
+    showAnalytics,
   } = useAppStore()
 
   const handleThreadSelect = (threadId: string) => {
@@ -39,7 +40,7 @@ function App() {
         
         <MobileHeader />
         
-        <SessionView />
+        {showAnalytics ? <AnalyticsView /> : <SessionView />}
         
         <MobileDrawer 
           open={isMobileSidebarOpen} 
@@ -64,8 +65,14 @@ function App() {
     <div className="h-screen flex overflow-hidden bg-bg-primary">
       <StartupLoader />
       <Sidebar />
-      <ThreadList />
-      <SessionView />
+      {showAnalytics ? (
+        <AnalyticsView />
+      ) : (
+        <>
+          <ThreadList />
+          <SessionView />
+        </>
+      )}
     </div>
   )
 }
