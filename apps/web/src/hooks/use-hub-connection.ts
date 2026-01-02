@@ -74,7 +74,6 @@ export const useHubConnection = () => {
     setThreadTurnId,
     setThreadTurnStartedAt,
     setThreadLastTurnDuration,
-    threadTurnStartedAt,
     setThreadTokenUsage,
     setAccountLoginId,
   } = useAppStore()
@@ -251,7 +250,7 @@ export const useHubConnection = () => {
               const { threadId } = params as { threadId?: string }
               // console.log('[HubConnection] turn/completed event for thread:', threadId)
               if (threadId) {
-                const startedAt = threadTurnStartedAt[threadId]
+                const startedAt = useAppStore.getState().threadTurnStartedAt[threadId]
                 if (startedAt) {
                   const duration = Math.floor((Date.now() - startedAt) / 1000)
                   setThreadLastTurnDuration(threadId, duration)
@@ -549,7 +548,6 @@ export const useHubConnection = () => {
     setThreadTurnId,
     setThreadTurnStartedAt,
     setThreadLastTurnDuration,
-    threadTurnStartedAt,
     updateAccount,
     updateThread,
   ])
