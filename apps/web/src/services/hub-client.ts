@@ -12,6 +12,21 @@ export type PromptSummary = {
   description?: string
 }
 
+export type ThreadSearchResult = {
+  threadId: string
+  profileId: string
+  preview: string | null
+  modelProvider: string | null
+  createdAt: number | null
+  path: string | null
+  cwd: string | null
+  source: string | null
+  cliVersion: string | null
+  status: 'active' | 'archived'
+  archivedAt: number | null
+  lastSeenAt: number | null
+}
+
 type WsEvent =
   | {
       type: 'rpc.event'
@@ -203,6 +218,33 @@ class HubClient {
     }
     const data = (await response.json()) as { content?: string }
     return data.content ?? ''
+  }
+
+  async searchThreads(params: {
+    query?: string
+    profileId?: string
+    model?: string
+    status?: 'active' | 'archived'
+    createdAfter?: number
+    createdBefore?: number
+    limit?: number
+    offset?: number
+  }): Promise<ThreadSearchResult[]> {
+    const url = new URL('/threads/search', HUB_URL)
+    if (params.query) url.searchParams.set('q', params.query)
+    if (params.profileId) url.searchParams.set('profileId', params.profileId)
+    if (params.model) url.searchParams.set('model', params.model)
+    if (params.status) url.searchParams.set('status', params.status)
+    if (params.createdAfter) url.searchParams.set('createdAfter', String(params.createdAfter))
+    if (params.createdBefore) url.searchParams.set('createdBefore', String(params.createdBefore))
+    if (params.limit) url.searchParams.set('limit', String(params.limit))
+    if (params.offset) url.searchParams.set('offset', String(params.offset))
+    const response = await fetch(url.toString())
+    if (!response.ok) {
+      throw new Error('Failed to search threads')
+    }
+    const data = (await response.json()) as { threads?: ThreadSearchResult[] }
+    return data.threads ?? []
   }
 
   async request(profileId: string, method: string, params?: unknown): Promise<unknown> {

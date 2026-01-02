@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store'
 import { hubClient } from '../../services/hub-client'
 import { Badge, Button, Icons, IconButton, Input, StatusDot } from '../ui'
-import type { TabType, ReasoningEffort } from '../../types'
+import type { TabType, ReasoningEffort, Thread } from '../../types'
 import { normalizeApprovalPolicy } from '../../utils/approval-policy'
 
 interface ThreadListProps {
@@ -11,6 +11,8 @@ interface ThreadListProps {
 
 export function ThreadList({ onThreadSelect }: ThreadListProps) {
   const [isCreating, setIsCreating] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Thread[] | null>(null)
   const [filterAccountId, setFilterAccountId] = useState<string | null>(null)
   const [filterModel, setFilterModel] = useState<string | null>(null)
   const [filterDays, setFilterDays] = useState<number | null>(null)
@@ -54,7 +56,9 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
 
   const allModels = Array.from(new Set(threads.map(t => t.model))).filter(Boolean)
 
-  const filteredThreads = accountThreads.filter((thread) => {
+  const baseThreads = searchResults ?? accountThreads
+
+  const filteredThreads = baseThreads.filter((thread) => {
     if (activeTab === 'archive') {
       if (thread.status !== 'archived') return false
     } else if (activeTab === 'reviews') {
@@ -83,6 +87,59 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
   const defaultEffort = defaultModel?.defaultReasoningEffort
   const isAccountReady = selectedAccount?.status === 'online'
 
+  useEffect(() => {
+    const trimmed = searchQuery.trim()
+    if (!trimmed) {
+      setSearchResults(null)
+      return
+    }
+    let cancelled = false
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const now = Math.floor(Date.now() / 1000)
+        const createdAfter = filterDays ? now - filterDays * 24 * 60 * 60 : undefined
+        const status = activeTab === 'archive' ? 'archived' : activeTab === 'sessions' ? 'active' : undefined
+        const profileId = filterAccountId ?? selectedAccountId ?? undefined
+        const results = await hubClient.searchThreads({
+          query: trimmed,
+          profileId,
+          model: filterModel ?? undefined,
+          status,
+          createdAfter,
+          limit: 100,
+        })
+        if (cancelled) {
+          return
+        }
+        const mapped = results.map((row) => ({
+          id: row.threadId,
+          accountId: row.profileId,
+          title: row.preview?.trim() || 'Untitled session',
+          preview: row.preview?.trim() || 'No preview available yet.',
+          model: row.modelProvider ?? 'unknown',
+          createdAt: row.createdAt
+            ? new Date(row.createdAt * 1000).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+              })
+            : '',
+          status: row.status,
+          messageCount: 0,
+        }))
+        setSearchResults(mapped)
+      } catch {
+        if (!cancelled) {
+          setSearchResults([])
+        }
+      }
+    }, 200)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [searchQuery, filterAccountId, filterModel, filterDays, activeTab, selectedAccountId])
+
   const archiveThread = async (threadId: string, accountId: string) => {
     try {
       await hubClient.request(accountId, 'thread/archive', { threadId })
@@ -106,6 +163,8 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
             placeholder="Search sessions..." 
             icon={<Icons.Search className="w-4 h-4" />}
             className="flex-1"
+            value={searchQuery}
+            onChange={(value) => setSearchQuery(value)}
           />
           {onThreadSelect && (
             <IconButton

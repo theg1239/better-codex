@@ -6,6 +6,7 @@ export type TabType = 'sessions' | 'reviews' | 'archive'
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none'
 export type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
+export type ReviewStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface Attachment {
   id: string
@@ -102,4 +103,17 @@ export interface ApprovalRequest {
   type: 'command' | 'file' | 'network'
   payload: string
   status: 'pending' | 'approved' | 'denied'
+}
+
+export interface ReviewSession {
+  id: string
+  threadId: string
+  profileId: string
+  model?: string
+  cwd?: string
+  status: ReviewStatus
+  startedAt: number
+  completedAt?: number
+  label?: string
+  review?: string
 }

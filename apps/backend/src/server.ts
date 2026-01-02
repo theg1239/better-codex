@@ -7,6 +7,8 @@ import { CodexSupervisor } from './services/supervisor'
 import { ProfileStore } from './services/profile-store'
 import { AnalyticsStore } from './analytics/store'
 import { AnalyticsService } from './analytics/service'
+import { ThreadIndexStore } from './thread-index/store'
+import { ThreadIndexService, type ThreadListItem } from './thread-index/service'
 import type { WsEvent, WsRequest, WsResponse } from './ws/messages'
 
 const config = loadConfig()
@@ -18,6 +20,8 @@ await profileStore.ensureDefault(config.defaultCodexHome)
 const supervisor = new CodexSupervisor(config)
 const analytics = new AnalyticsService(new AnalyticsStore(join(config.dataDir, 'analytics.sqlite')))
 analytics.init()
+const threadIndex = new ThreadIndexService(new ThreadIndexStore(join(config.dataDir, 'threads.sqlite')))
+threadIndex.init()
 
 type WsClient = { send: (data: string) => void; id: string }
 
@@ -190,6 +194,79 @@ const app = new Elysia()
       }),
     }
   )
+  .get(
+    '/threads/search',
+    ({ query }) => {
+      const q = typeof query.q === 'string' ? query.q : undefined
+      const profileId = typeof query.profileId === 'string' ? query.profileId : undefined
+      const model = typeof query.model === 'string' ? query.model : undefined
+      const status = query.status === 'archived' ? 'archived' : query.status === 'active' ? 'active' : undefined
+      const createdAfter = query.createdAfter ? Number(query.createdAfter) : undefined
+      const createdBefore = query.createdBefore ? Number(query.createdBefore) : undefined
+      const limit = query.limit ? Number(query.limit) : undefined
+      const offset = query.offset ? Number(query.offset) : undefined
+      const threads = threadIndex.search({
+        query: q,
+        profileId,
+        model,
+        status,
+        createdAfter: Number.isFinite(createdAfter) ? createdAfter : undefined,
+        createdBefore: Number.isFinite(createdBefore) ? createdBefore : undefined,
+        limit: Number.isFinite(limit) ? limit : undefined,
+        offset: Number.isFinite(offset) ? offset : undefined,
+      })
+      return { threads }
+    },
+    {
+      query: t.Object({
+        q: t.Optional(t.String()),
+        profileId: t.Optional(t.String()),
+        model: t.Optional(t.String()),
+        status: t.Optional(t.String()),
+        createdAfter: t.Optional(t.String()),
+        createdBefore: t.Optional(t.String()),
+        limit: t.Optional(t.String()),
+        offset: t.Optional(t.String()),
+      }),
+    }
+  )
+  .post(
+    '/threads/reindex',
+    async ({ body }) => {
+      const limit = typeof body?.limit === 'number' ? body.limit : 100
+      const autoStart = body?.autoStart === true
+      const targetProfileId = typeof body?.profileId === 'string' ? body.profileId : null
+      const profiles = targetProfileId
+        ? profileStore.list().filter((profile) => profile.id === targetProfileId)
+        : profileStore.list()
+
+      const results: Array<{ profileId: string; ok: boolean; error?: string }> = []
+      for (const profile of profiles) {
+        try {
+          if (autoStart) {
+            await supervisor.start(profile)
+          }
+          const response = await supervisor.request(profile.id, 'thread/list', { limit })
+          const data = (response as { data?: ThreadListItem[] }).data ?? []
+          threadIndex.recordThreadList(profile.id, data)
+          results.push({ profileId: profile.id, ok: true })
+        } catch (error) {
+          results.push({ profileId: profile.id, ok: false, error: error instanceof Error ? error.message : 'failed' })
+        }
+      }
+
+      return { ok: true, results }
+    },
+    {
+      body: t.Optional(
+        t.Object({
+          profileId: t.Optional(t.String()),
+          limit: t.Optional(t.Number()),
+          autoStart: t.Optional(t.Boolean()),
+        })
+      ),
+    }
+  )
   .ws('/ws', {
     open(ws) {
       // Get token from query params via ws.data which contains the request context
@@ -273,6 +350,24 @@ const app = new Elysia()
             payload.method,
             payload.params
           )
+          if (payload.method === 'thread/list') {
+            const data = (result as { data?: ThreadListItem[] }).data ?? []
+            threadIndex.recordThreadList(payload.profileId, data)
+          }
+          if (payload.method === 'thread/start') {
+            const thread = (result as { thread?: ThreadListItem }).thread
+            threadIndex.recordThreadStart(payload.profileId, thread)
+          }
+          if (payload.method === 'thread/resume') {
+            const thread = (result as { thread?: ThreadListItem }).thread
+            threadIndex.recordThreadResume(payload.profileId, thread)
+          }
+          if (payload.method === 'thread/archive') {
+            const params = payload.params as { threadId?: string } | undefined
+            if (params?.threadId) {
+              threadIndex.recordThreadArchive(payload.profileId, params.threadId)
+            }
+          }
           analytics.trackRpcResponse({
             profileId: payload.profileId,
             method: payload.method,
@@ -308,6 +403,10 @@ const app = new Elysia()
   })
 
 supervisor.on('notification', (event) => {
+  if (event.method === 'thread/started') {
+    const thread = (event.params as { thread?: ThreadListItem })?.thread
+    threadIndex.recordThreadStart(event.profileId, thread)
+  }
   analytics.trackRpcEvent({
     profileId: event.profileId,
     method: event.method,

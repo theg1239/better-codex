@@ -133,7 +133,7 @@ export function Select({
         type="button"
         onClick={handleButtonClick}
         disabled={disabled}
-        className={`flex items-center gap-1.5 bg-bg-tertiary border border-border rounded-lg ${sizeStyles[size]} text-text-secondary hover:bg-bg-hover hover:border-text-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0`}
+        className={`flex items-center justify-between gap-1.5 w-full bg-bg-tertiary border border-border rounded-lg ${sizeStyles[size]} text-text-secondary hover:bg-bg-hover hover:border-text-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0`}
       >
         <span className="truncate">{selectedOption?.label || placeholder}</span>
         <Icons.ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />

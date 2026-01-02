@@ -1,4 +1,4 @@
-import { Sidebar, ThreadList, SessionView, AnalyticsView } from './components'
+import { Sidebar, ThreadList, SessionView, AnalyticsView, ReviewsView } from './components'
 import { StartupLoader } from './components/loading/startup-loader'
 import { MobileHeader } from './components/layout/mobile-header'
 import { MobileDrawer } from './components/ui'
@@ -21,6 +21,7 @@ function App() {
     closeMobileDrawers,
     setSelectedThreadId,
     showAnalytics,
+    showReviews,
   } = useAppStore()
 
   const handleThreadSelect = (threadId: string) => {
@@ -40,7 +41,7 @@ function App() {
         
         <MobileHeader />
         
-        {showAnalytics ? <AnalyticsView /> : <SessionView />}
+        {showAnalytics ? <AnalyticsView /> : showReviews ? <ReviewsView /> : <SessionView />}
         
         <MobileDrawer 
           open={isMobileSidebarOpen} 
@@ -67,6 +68,8 @@ function App() {
       <Sidebar />
       {showAnalytics ? (
         <AnalyticsView />
+      ) : showReviews ? (
+        <ReviewsView />
       ) : (
         <>
           <ThreadList />

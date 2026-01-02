@@ -76,6 +76,8 @@ export const useHubConnection = () => {
     setThreadLastTurnDuration,
     setThreadTokenUsage,
     setAccountLoginId,
+    upsertReviewSession,
+    updateReviewSession,
   } = useAppStore()
 
   const nowTimestamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -247,7 +249,7 @@ export const useHubConnection = () => {
             }
 
             if (method === 'turn/completed' && params && typeof params === 'object') {
-              const { threadId } = params as { threadId?: string }
+              const { threadId, turn } = params as { threadId?: string; turn?: { id?: string; status?: string } }
               // console.log('[HubConnection] turn/completed event for thread:', threadId)
               if (threadId) {
                 const startedAt = useAppStore.getState().threadTurnStartedAt[threadId]
@@ -259,6 +261,12 @@ export const useHubConnection = () => {
                 setThreadTurnId(threadId, null)
                 setThreadTurnStartedAt(threadId, null)
                 void dispatchQueuedMessage(profileId, threadId)
+              }
+              if (turn?.id && turn.status) {
+                updateReviewSession(turn.id, {
+                  status: turn.status === 'failed' ? 'failed' : 'completed',
+                  completedAt: Date.now(),
+                })
               }
             }
 
@@ -372,13 +380,25 @@ export const useHubConnection = () => {
             }
 
             if (method === 'item/started' && params && typeof params === 'object') {
-              const { item, threadId } = params as {
-                item?: ItemPayload
+              const { item, threadId, turnId } = params as {
+                item?: ItemPayload & { review?: string }
                 threadId?: string
+                turnId?: string
               }
               if (threadId && item?.type === 'agentMessage' && item.id) {
                 ensureAssistantMessage(threadId, item.id)
                 return
+              }
+              if (threadId && item?.type === 'enteredReviewMode') {
+                const sessionId = turnId ?? item.id ?? `review-${Date.now()}`
+                upsertReviewSession({
+                  id: sessionId,
+                  threadId,
+                  profileId,
+                  status: 'running',
+                  startedAt: Date.now(),
+                  label: typeof item.review === 'string' ? item.review : 'Review',
+                })
               }
               if (threadId && isThreadItem(item)) {
                 const systemMessage = buildSystemMessage(item)
@@ -390,9 +410,20 @@ export const useHubConnection = () => {
             }
 
             if (method === 'item/completed' && params && typeof params === 'object') {
-              const { item, threadId } = params as {
-                item?: ItemPayload
+              const { item, threadId, turnId } = params as {
+                item?: ItemPayload & { review?: string }
                 threadId?: string
+                turnId?: string
+              }
+              if (threadId && item?.type === 'exitedReviewMode') {
+                const sessionId = turnId ?? item.id
+                if (sessionId) {
+                  updateReviewSession(sessionId, {
+                    status: 'completed',
+                    completedAt: Date.now(),
+                    review: typeof item.review === 'string' ? item.review : undefined,
+                  })
+                }
               }
               if (threadId && isThreadItem(item)) {
                 const systemMessage = buildSystemMessage(item)
@@ -549,6 +580,8 @@ export const useHubConnection = () => {
     setThreadTurnStartedAt,
     setThreadLastTurnDuration,
     updateAccount,
+    upsertReviewSession,
+    updateReviewSession,
     updateThread,
   ])
 }

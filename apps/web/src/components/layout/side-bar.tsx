@@ -41,6 +41,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     connectionStatus,
     showAnalytics,
     setShowAnalytics,
+    showReviews,
+    setShowReviews,
   } = useAppStore()
 
   const getStatusColor = (status: 'online' | 'degraded' | 'offline') => {
@@ -349,13 +351,22 @@ export function Sidebar({ onNavigate }: SidebarProps) {
             <NavItem 
               icon={<Icons.Grid className="w-4 h-4" />} 
               label="Multi-account" 
-              active={!showAnalytics}
+              active={!showAnalytics && !showReviews}
               onClick={() => {
                 setShowAnalytics(false)
+                setShowReviews(false)
                 onNavigate?.()
               }}
             />
-            <NavItem icon={<Icons.Clipboard className="w-4 h-4" />} label="Reviews" />
+            <NavItem 
+              icon={<Icons.Clipboard className="w-4 h-4" />} 
+              label="Reviews" 
+              active={showReviews}
+              onClick={() => {
+                setShowReviews(true)
+                onNavigate?.()
+              }}
+            />
             <NavItem icon={<Icons.Archive className="w-4 h-4" />} label="Archives" />
             <NavItem icon={<Icons.Bolt className="w-4 h-4" />} label="Automations" />
             <NavItem 

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Account, Thread, Message, ApprovalRequest, TabType, ModelInfo, ReasoningEffort, ReasoningSummary, ApprovalPolicy, QueuedMessage } from '../types'
+import type { Account, Thread, Message, ApprovalRequest, TabType, ModelInfo, ReasoningEffort, ReasoningSummary, ApprovalPolicy, QueuedMessage, ReviewSession } from '../types'
 
 interface AppState {
   accounts: Account[]
@@ -25,10 +25,12 @@ interface AppState {
   queuedMessages: Record<string, QueuedMessage[]>
   
   approvals: ApprovalRequest[]
+  reviewSessions: ReviewSession[]
   
   activeTab: TabType
   isSidebarCollapsed: boolean
   showAnalytics: boolean
+  showReviews: boolean
   
   isMobileSidebarOpen: boolean
   isMobileThreadListOpen: boolean
@@ -71,10 +73,13 @@ interface AppState {
   
   addApproval: (approval: ApprovalRequest) => void
   resolveApproval: (id: string, status: 'approved' | 'denied') => void
+  upsertReviewSession: (session: ReviewSession) => void
+  updateReviewSession: (id: string, updates: Partial<ReviewSession>) => void
   
   setActiveTab: (tab: TabType) => void
   toggleSidebar: () => void
   setShowAnalytics: (show: boolean) => void
+  setShowReviews: (show: boolean) => void
   setConnectionStatus: (status: AppState['connectionStatus']) => void
   
   setMobileSidebarOpen: (open: boolean) => void
@@ -103,9 +108,11 @@ export const useAppStore = create<AppState>((set) => ({
   messages: {},
   queuedMessages: {},
   approvals: [],
+  reviewSessions: [],
   activeTab: 'sessions',
   isSidebarCollapsed: false,
   showAnalytics: false,
+  showReviews: false,
   isMobileSidebarOpen: false,
   isMobileThreadListOpen: false,
 
@@ -162,6 +169,7 @@ export const useAppStore = create<AppState>((set) => ({
       threadTokenUsage,
       modelsByAccount,
       accountLoginIds,
+      reviewSessions: state.reviewSessions.filter((session) => session.profileId !== id),
       approvals: state.approvals.filter((approval) => approval.profileId !== id),
     }
   }),
@@ -491,10 +499,27 @@ export const useAppStore = create<AppState>((set) => ({
   resolveApproval: (id, status) => set((state) => ({
     approvals: state.approvals.map((a) => a.id === id ? { ...a, status } : a),
   })),
+  upsertReviewSession: (session) => set((state) => {
+    const existing = state.reviewSessions.find((item) => item.id === session.id)
+    if (!existing) {
+      return { reviewSessions: [session, ...state.reviewSessions] }
+    }
+    return {
+      reviewSessions: state.reviewSessions.map((item) =>
+        item.id === session.id ? { ...item, ...session } : item
+      ),
+    }
+  }),
+  updateReviewSession: (id, updates) => set((state) => ({
+    reviewSessions: state.reviewSessions.map((item) =>
+      item.id === id ? { ...item, ...updates } : item
+    ),
+  })),
 
   setActiveTab: (tab) => set({ activeTab: tab }),
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
-  setShowAnalytics: (show) => set({ showAnalytics: show }),
+  setShowAnalytics: (show) => set({ showAnalytics: show, showReviews: false }),
+  setShowReviews: (show) => set({ showReviews: show, showAnalytics: false }),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   
   setMobileSidebarOpen: (open) => set({ isMobileSidebarOpen: open }),
