@@ -25,20 +25,20 @@ export function AccountUsagePanel() {
     return `${Math.round(diff / 3600)}h`
   }
 
-  const getUsageColor = (percent: number) => {
-    if (percent >= 90) return 'text-accent-red'
-    if (percent >= 70) return 'text-yellow-500'
+  const getRemainingColor = (percentLeft: number) => {
+    if (percentLeft <= 10) return 'text-accent-red'
+    if (percentLeft <= 30) return 'text-yellow-500'
     return 'text-accent-green'
   }
 
-  const getUsageBarColor = (percent: number) => {
-    if (percent >= 90) return 'bg-accent-red'
-    if (percent >= 70) return 'bg-yellow-500'
+  const getRemainingBarColor = (percentLeft: number) => {
+    if (percentLeft <= 10) return 'bg-accent-red'
+    if (percentLeft <= 30) return 'bg-yellow-500'
     return 'bg-accent-green'
   }
 
   // Always show current rateLimit even without full usage data
-  const primaryPercent = usage?.primary?.usedPercent ?? account.rateLimit
+  const primaryUsed = usage?.primary?.usedPercent ?? account.rateLimit
 
   return (
     <div className="bg-bg-tertiary border border-border rounded-xl p-3">
@@ -53,23 +53,23 @@ export function AccountUsagePanel() {
       <div className="space-y-3">
         <UsageBar
           label="5 Hours"
-          percent={primaryPercent}
+          usedPercent={primaryUsed}
           windowMinutes={usage?.primary?.windowMinutes ?? null}
           resetsAt={usage?.primary?.resetsAt ?? null}
           formatResetTime={formatResetTime}
-          getUsageColor={getUsageColor}
-          getUsageBarColor={getUsageBarColor}
+          getRemainingColor={getRemainingColor}
+          getRemainingBarColor={getRemainingBarColor}
         />
 
         {usage?.secondary && (
           <UsageBar
             label="Weekly"
-            percent={usage.secondary.usedPercent}
+            usedPercent={usage.secondary.usedPercent}
             windowMinutes={usage.secondary.windowMinutes}
             resetsAt={usage.secondary.resetsAt}
             formatResetTime={formatResetTime}
-            getUsageColor={getUsageColor}
-            getUsageBarColor={getUsageBarColor}
+            getRemainingColor={getRemainingColor}
+            getRemainingBarColor={getRemainingBarColor}
           />
         )}
 
@@ -118,30 +118,31 @@ export function AccountUsagePanel() {
 
 function UsageBar({
   label,
-  percent,
+  usedPercent,
   windowMinutes,
   resetsAt,
   formatResetTime,
-  getUsageColor,
-  getUsageBarColor,
+  getRemainingColor,
+  getRemainingBarColor,
 }: {
   label: string
-  percent: number
+  usedPercent: number
   windowMinutes: number | null
   resetsAt: number | null
   formatResetTime: (resetsAt: number | null) => string | null
-  getUsageColor: (percent: number) => string
-  getUsageBarColor: (percent: number) => string
+  getRemainingColor: (percentLeft: number) => string
+  getRemainingBarColor: (percentLeft: number) => string
 }) {
   const resetTime = formatResetTime(resetsAt)
+  const percentLeft = Math.max(0, Math.min(100, 100 - usedPercent))
 
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs text-text-muted">{label}</span>
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-medium ${getUsageColor(percent)}`}>
-            {Math.round(percent)}%
+          <span className={`text-sm font-medium ${getRemainingColor(percentLeft)}`}>
+            {Math.round(percentLeft)}% left
           </span>
           {windowMinutes && (
             <span className="text-[10px] text-text-muted">
@@ -152,8 +153,8 @@ function UsageBar({
       </div>
       <div className="h-2 bg-bg-primary rounded-full overflow-hidden">
         <div
-          className={`h-full transition-all duration-300 ${getUsageBarColor(percent)}`}
-          style={{ width: `${Math.min(100, percent)}%` }}
+          className={`h-full transition-all duration-300 ${getRemainingBarColor(percentLeft)}`}
+          style={{ width: `${percentLeft}%` }}
         />
       </div>
       {resetTime && (
