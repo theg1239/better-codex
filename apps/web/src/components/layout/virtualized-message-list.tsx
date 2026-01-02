@@ -335,7 +335,7 @@ export function VirtualizedMessageList({
     <div className="flex-1 relative">
       <div 
         ref={parentRef} 
-        className="h-full overflow-y-auto px-6"
+        className="h-full overflow-y-auto px-3 md:px-6 touch-scroll"
         style={{ contain: 'strict' }}
         onScroll={handleScroll}
       >

@@ -20,7 +20,7 @@ export const SessionHeader = ({
   const isActive = status === 'active'
 
   return (
-    <header className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0 gap-4">
+    <header className="hidden md:flex px-4 py-3 border-b border-border items-center justify-between shrink-0 gap-4">
       <div className="min-w-0 flex-1 overflow-hidden">
         <h2 className="text-sm font-semibold text-text-primary truncate">{title}</h2>
         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-text-muted">

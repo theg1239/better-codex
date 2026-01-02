@@ -38,7 +38,7 @@ export function Dialog({ open, onClose, title, children, size = 'medium' }: Dial
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
@@ -48,7 +48,7 @@ export function Dialog({ open, onClose, title, children, size = 'medium' }: Dial
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        className={`relative bg-bg-secondary border border-border rounded-xl shadow-2xl w-full ${sizeClasses[size]} mx-4 overflow-visible`}
+        className={`relative bg-bg-secondary border border-border rounded-xl shadow-2xl w-full ${sizeClasses[size]} max-h-[85vh] overflow-y-auto touch-scroll`}
       >
         {title && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">

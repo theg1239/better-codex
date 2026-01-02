@@ -165,7 +165,7 @@ export const SessionComposer = ({
   }
 
   return (
-    <div className="px-6 py-4 border-t border-border shrink-0">
+    <div className="px-3 py-3 md:px-6 md:py-4 border-t border-border shrink-0 pb-safe">
       <div className="max-w-4xl mx-auto">
         <div className="bg-bg-tertiary border border-border rounded-xl overflow-visible focus-within:border-text-muted transition-colors relative">
           {slashMenuOpen && (
@@ -254,15 +254,15 @@ export const SessionComposer = ({
             onChange={handleFileInputChange}
             className="hidden"
           />
-          <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-bg-secondary/50 rounded-b-xl">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between px-2.5 py-2 border-t border-border bg-bg-secondary/50 rounded-b-xl gap-2">
+            <div className="flex items-center gap-1 flex-wrap min-w-0 overflow-x-auto scrollbar-hide">
               <IconButton 
                 icon={<Icons.Paperclip className="w-4 h-4 text-text-muted" />} 
                 size="sm" 
                 disabled={!canInteract}
                 onClick={() => fileInputRef.current?.click()}
               />
-              <IconButton icon={<Icons.Microphone className="w-4 h-4 text-text-muted" />} size="sm" disabled={!canInteract} />
+              <IconButton icon={<Icons.Microphone className="w-4 h-4 text-text-muted" />} size="sm" disabled={!canInteract} className="hidden sm:flex" />
               <IconButton 
                 icon={<Icons.Globe className={`w-4 h-4 ${webSearchEnabled ? 'text-accent-green' : 'text-text-muted'}`} />} 
                 size="sm" 
@@ -276,6 +276,7 @@ export const SessionComposer = ({
                   onChange={onModelChange}
                   size="sm"
                   disabled={!canInteract}
+                  label="Select Model"
                 />
               )}
               {showEffortSelect && (
@@ -286,12 +287,13 @@ export const SessionComposer = ({
                   placeholder="Thinking"
                   size="sm"
                   disabled={!canInteract}
+                  label="Reasoning Effort"
                 />
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
               {queuedCount > 0 && (
-                <div className="text-[10px] text-text-muted">
+                <div className="text-[10px] text-text-muted hidden sm:block">
                   Queued {queuedCount}
                 </div>
               )}
@@ -302,7 +304,7 @@ export const SessionComposer = ({
                 disabled={!inputValue.trim() || !canInteract}
               >
                 <Icons.ArrowUp className="w-3.5 h-3.5" />
-                Send
+                <span className="hidden sm:inline">Send</span>
               </Button>
             </div>
           </div>

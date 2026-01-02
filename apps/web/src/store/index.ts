@@ -25,6 +25,9 @@ interface AppState {
   activeTab: TabType
   isSidebarCollapsed: boolean
   
+  isMobileSidebarOpen: boolean
+  isMobileThreadListOpen: boolean
+  
   setSelectedAccountId: (id: string | null) => void
   setAccounts: (accounts: Account[]) => void
   addAccount: (account: Account) => void
@@ -63,6 +66,10 @@ interface AppState {
   setActiveTab: (tab: TabType) => void
   toggleSidebar: () => void
   setConnectionStatus: (status: AppState['connectionStatus']) => void
+  
+  setMobileSidebarOpen: (open: boolean) => void
+  setMobileThreadListOpen: (open: boolean) => void
+  closeMobileDrawers: () => void
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -84,6 +91,8 @@ export const useAppStore = create<AppState>((set) => ({
   approvals: [],
   activeTab: 'sessions',
   isSidebarCollapsed: false,
+  isMobileSidebarOpen: false,
+  isMobileThreadListOpen: false,
 
   setSelectedAccountId: (id) => set({ selectedAccountId: id }),
   setAccounts: (accounts) => set({ accounts }),
@@ -419,4 +428,8 @@ export const useAppStore = create<AppState>((set) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
   setConnectionStatus: (status) => set({ connectionStatus: status }),
+  
+  setMobileSidebarOpen: (open) => set({ isMobileSidebarOpen: open }),
+  setMobileThreadListOpen: (open) => set({ isMobileThreadListOpen: open }),
+  closeMobileDrawers: () => set({ isMobileSidebarOpen: false, isMobileThreadListOpen: false }),
 }))

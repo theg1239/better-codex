@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '../../store'
 import { hubClient } from '../../services/hub-client'
-import { Badge, Button, Icons, Input, StatusDot } from '../ui'
+import { Badge, Button, Icons, IconButton, Input, StatusDot } from '../ui'
 import type { TabType, ReasoningEffort } from '../../types'
 import { normalizeApprovalPolicy } from '../../utils/approval-policy'
 
-export function ThreadList() {
+interface ThreadListProps {
+  onThreadSelect?: (threadId: string) => void
+}
+
+export function ThreadList({ onThreadSelect }: ThreadListProps) {
   const [isCreating, setIsCreating] = useState(false)
   const [filterAccountId, setFilterAccountId] = useState<string | null>(null)
   const [filterModel, setFilterModel] = useState<string | null>(null)
@@ -85,12 +89,23 @@ export function ThreadList() {
   ]
 
   return (
-    <div className="w-80 bg-bg-primary border-r border-border flex flex-col h-full">
+    <div className="w-full md:w-80 bg-bg-primary border-r border-border flex flex-col h-full">
       <div className="p-3 border-b border-border space-y-2">
-        <Input 
-          placeholder="Search sessions..." 
-          icon={<Icons.Search className="w-4 h-4" />}
-        />
+        <div className="flex items-center gap-2">
+          <Input 
+            placeholder="Search sessions..." 
+            icon={<Icons.Search className="w-4 h-4" />}
+            className="flex-1"
+          />
+          {onThreadSelect && (
+            <IconButton
+              icon={<Icons.X className="w-4 h-4 text-text-muted" />}
+              size="sm"
+              onClick={() => onThreadSelect('')}
+              className="md:hidden"
+            />
+          )}
+        </div>
         
         <div className="flex gap-1">
           {tabs.map((tab) => (
@@ -282,6 +297,7 @@ export function ThreadList() {
                   messageCount: 0,
                 })
                 setSelectedThreadId(result.thread.id)
+                onThreadSelect?.(result.thread.id)
                 if (defaultModel?.id) {
                   setThreadModel(result.thread.id, defaultModel.id)
                 }
@@ -311,17 +327,20 @@ export function ThreadList() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-1.5">
+      <div className="flex-1 overflow-y-auto touch-scroll p-1.5">
         {filteredThreads.map((thread) => {
           const account = accounts.find(a => a.id === thread.accountId)
           return (
             <button
               key={thread.id}
-              onClick={() => setSelectedThreadId(thread.id)}
+              onClick={() => {
+                setSelectedThreadId(thread.id)
+                onThreadSelect?.(thread.id)
+              }}
               className={`w-full text-left p-2.5 rounded-lg mb-0.5 transition-colors ${
                 selectedThreadId === thread.id
                   ? 'bg-bg-elevated border border-border'
-                  : 'hover:bg-bg-hover border border-transparent'
+                  : 'hover:bg-bg-hover active:bg-bg-elevated border border-transparent'
               }`}
             >
               <div className="flex items-start justify-between gap-2 mb-1">

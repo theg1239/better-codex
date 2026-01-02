@@ -5,7 +5,11 @@ import { Avatar, Button, Dialog, IconButton, Icons, SectionHeader, AlertDialog, 
 import { AccountUsagePanel } from './account-usage-panel'
 import { SettingsDialog } from './settings-dialog'
 
-export function Sidebar() {
+interface SidebarProps {
+  onNavigate?: () => void
+}
+
+export function Sidebar({ onNavigate }: SidebarProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
@@ -80,12 +84,20 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="w-60 bg-bg-secondary border-r border-border flex flex-col h-full">
+    <aside className="w-full md:w-60 bg-bg-secondary border-r border-border flex flex-col h-full">
       <div className="p-3 border-b border-border">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center justify-between gap-2.5">
           <div>
             <h1 className="text-sm font-semibold text-text-primary leading-none">better-codex</h1>
           </div>
+          {onNavigate && (
+            <IconButton
+              icon={<Icons.X className="w-4 h-4 text-text-muted" />}
+              size="sm"
+              onClick={onNavigate}
+              className="md:hidden"
+            />
+          )}
         </div>
       </div>
 
@@ -96,11 +108,15 @@ export function Sidebar() {
             {accounts.map((account) => (
               <div
                 key={account.id}
-                onClick={() => setSelectedAccountId(account.id === selectedAccountId ? null : account.id)}
+                onClick={() => {
+                  setSelectedAccountId(account.id === selectedAccountId ? null : account.id)
+                  onNavigate?.()
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
                     setSelectedAccountId(account.id === selectedAccountId ? null : account.id)
+                    onNavigate?.()
                   }
                 }}
                 role="button"
