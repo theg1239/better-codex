@@ -573,6 +573,7 @@ export function VirtualizedMessageList({
 }: VirtualizedMessageListProps) {
   const parentRef = useRef<HTMLDivElement>(null)
   const [userHasScrolled, setUserHasScrolled] = useState(false)
+  const [listHeight, setListHeight] = useState(0)
   const lastScrollTop = useRef(0)
   const isAutoScrolling = useRef(false)
   const prevItemsLength = useRef(0)
@@ -591,6 +592,9 @@ export function VirtualizedMessageList({
   
   const turns = useMemo(() => groupMessagesIntoTurns(messages), [messages])
   const workingBarHeight = 64
+  const baseBuffer = listHeight ? Math.round(listHeight * 0.3) : 0
+  const extraBuffer = Math.min(360, Math.max(120, baseBuffer))
+  const bottomSpacerHeight = extraBuffer + (isTaskRunning ? workingBarHeight : 0)
   const activeReasoningHeadline = useMemo(() => {
     if (!isTaskRunning) {
       return null
@@ -619,7 +623,7 @@ export function VirtualizedMessageList({
     ...approvals.map(a => ({ type: 'approval' as const, data: a })),
     ...(!isTaskRunning && lastTurnDuration ? [{ type: 'worked' as const, data: { duration: lastTurnDuration } }] : []),
     ...queuedMessages.map(q => ({ type: 'queued' as const, data: q })),
-    ...(isTaskRunning ? [{ type: 'spacer' as const, data: { height: workingBarHeight } }] : []),
+    ...(bottomSpacerHeight > 0 ? [{ type: 'spacer' as const, data: { height: bottomSpacerHeight } }] : []),
   ]
 
   const initialScrollDone = useRef(false)
@@ -679,6 +683,23 @@ export function VirtualizedMessageList({
       })
     }
   }, [items.length, virtualizer])
+
+  useEffect(() => {
+    const element = parentRef.current
+    if (!element) {
+      return
+    }
+    const updateHeight = () => {
+      setListHeight(element.clientHeight)
+    }
+    updateHeight()
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+    const observer = new ResizeObserver(() => updateHeight())
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     const hasNewItems = items.length > prevItemsLength.current
