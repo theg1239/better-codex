@@ -674,14 +674,19 @@ export function CodexSettings() {
   }
 
   const validateServers = () => {
+    const seenNames = new Set<string>()
     for (const server of mcpDraft) {
       const name = server.name.trim()
       if (!name) {
         return 'Every MCP server needs a name.'
       }
-      if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
         return `Invalid MCP server name: "${name}".`
       }
+      if (seenNames.has(name)) {
+        return `Duplicate MCP server name: "${name}".`
+      }
+      seenNames.add(name)
       if (server.transport === 'http' && !server.url.trim()) {
         return `Server "${name}" needs a URL.`
       }

@@ -295,10 +295,15 @@ const app = new Elysia()
         return new Response('Invalid MCP server payload', { status: 400 })
       }
       const servers = (body as { servers: McpServerConfig[] }).servers
+      const seenNames = new Set<string>()
       for (const server of servers) {
-        if (!server?.name || !/^[a-zA-Z0-9._-]+$/.test(server.name)) {
+        if (!server?.name || !/^[a-zA-Z0-9_-]+$/.test(server.name)) {
           return new Response('Invalid MCP server name', { status: 400 })
         }
+        if (seenNames.has(server.name)) {
+          return new Response('Duplicate MCP server name', { status: 400 })
+        }
+        seenNames.add(server.name)
       }
       const snapshot = await updateProfileMcpServers(profile.codexHome, servers)
       return {

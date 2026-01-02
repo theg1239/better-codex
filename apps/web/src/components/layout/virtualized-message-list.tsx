@@ -578,6 +578,7 @@ export function VirtualizedMessageList({
   const prevItemsLength = useRef(0)
   const lastMessage = messages[messages.length - 1]
   const userInteractedRef = useRef(false)
+  const seenItemIds = useRef(new Set<string>())
   const lastMessageSignature = useMemo(() => {
     if (!lastMessage) {
       return ''
@@ -589,6 +590,7 @@ export function VirtualizedMessageList({
   const isTaskRunning = threadStatus === 'active'
   
   const turns = useMemo(() => groupMessagesIntoTurns(messages), [messages])
+  const workingBarHeight = 64
   const activeReasoningHeadline = useMemo(() => {
     if (!isTaskRunning) {
       return null
@@ -611,11 +613,13 @@ export function VirtualizedMessageList({
     | { type: 'approval'; data: ApprovalRequest }
     | { type: 'worked'; data: { duration: number } }
     | { type: 'queued'; data: QueuedMessage }
+    | { type: 'spacer'; data: { height: number } }
   > = [
     ...turns.map(t => ({ type: 'turn' as const, data: t })),
     ...approvals.map(a => ({ type: 'approval' as const, data: a })),
     ...(!isTaskRunning && lastTurnDuration ? [{ type: 'worked' as const, data: { duration: lastTurnDuration } }] : []),
     ...queuedMessages.map(q => ({ type: 'queued' as const, data: q })),
+    ...(isTaskRunning ? [{ type: 'spacer' as const, data: { height: workingBarHeight } }] : []),
   ]
 
   const initialScrollDone = useRef(false)
@@ -628,6 +632,7 @@ export function VirtualizedMessageList({
       if (item.type === 'approval') return 140
       if (item.type === 'worked') return 40
       if (item.type === 'queued') return 80
+      if (item.type === 'spacer') return item.data.height
       const turn = item.data as Turn
       const userHeight = turn.userMessage ? 80 : 0
       const actionsHeight = turn.assistantActions.reduce((acc, action) => {
@@ -656,11 +661,9 @@ export function VirtualizedMessageList({
       return
     }
 
-    if (scrollTop < lastScrollTop.current && !isAtBottom) {
+    if (!isAtBottom) {
       setUserHasScrolled(true)
-    }
-
-    if (isAtBottom) {
+    } else {
       setUserHasScrolled(false)
       userInteractedRef.current = false
     }
@@ -726,7 +729,7 @@ export function VirtualizedMessageList({
     <div className="flex-1 relative">
       <div 
         ref={parentRef} 
-        className={`h-full overflow-y-auto px-3 md:px-6 touch-scroll ${isTaskRunning ? 'pb-20' : ''}`}
+        className="h-full overflow-y-auto px-3 md:px-6 touch-scroll pb-4"
         style={{ contain: 'strict' }}
         onScroll={handleScroll}
         onWheel={() => {
@@ -745,11 +748,29 @@ export function VirtualizedMessageList({
         >
           {virtualizer.getVirtualItems().map((virtualItem) => {
             const item = items[virtualItem.index]
+            const itemKey =
+              item.type === 'turn'
+                ? `turn:${item.data.id}`
+                : item.type === 'approval'
+                  ? `approval:${item.data.id}`
+                  : item.type === 'queued'
+                    ? `queued:${item.data.id}`
+                    : item.type === 'worked'
+                      ? `worked:${item.data.duration}`
+                      : null
+            const isFresh = itemKey ? !seenItemIds.current.has(itemKey) : false
+            if (itemKey) {
+              seenItemIds.current.add(itemKey)
+            }
+            const shouldAnimate = isFresh && !userHasScrolled && initialScrollDone.current && item.type !== 'spacer'
+            const wrapperClass = item.type === 'spacer'
+              ? 'absolute top-0 left-0 w-full'
+              : `absolute top-0 left-0 w-full py-2${shouldAnimate ? ' animate-in fade-in duration-200' : ''}`
             
             return (
               <div
                 key={virtualItem.key}
-                className="absolute top-0 left-0 w-full py-2"
+                className={wrapperClass}
                 style={{
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
@@ -762,6 +783,8 @@ export function VirtualizedMessageList({
                   <WorkedBubble duration={item.data.duration} />
                 ) : item.type === 'queued' ? (
                   <QueuedMessageBubble message={item.data} />
+                ) : item.type === 'spacer' ? (
+                  <div style={{ height: item.data.height }} />
                 ) : (
                   <ApprovalCard 
                     approval={item.data as ApprovalRequest}
@@ -787,10 +810,10 @@ export function VirtualizedMessageList({
       {userHasScrolled && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 
-                     bg-bg-elevated border border-border rounded-full text-xs text-text-muted 
-                     hover:text-text-primary hover:border-text-muted transition-all shadow-lg
-                     animate-in fade-in slide-in-from-bottom-2 duration-200"
+          className={`absolute ${isTaskRunning ? 'bottom-20' : 'bottom-4'} left-1/2 -translate-x-1/2 
+                     flex items-center gap-1.5 px-3 py-1.5 bg-bg-elevated border border-border rounded-full
+                     text-xs text-text-muted hover:text-text-primary hover:border-text-muted transition-all
+                     shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200`}
         >
           <Icons.ChevronDown className="w-3 h-3" />
           <span>New messages</span>
