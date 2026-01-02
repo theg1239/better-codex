@@ -212,7 +212,7 @@ const ensureDeps = (cwd, name) => {
     return true;
   }
   log.step(`Installing dependencies for ${c.cyan}${name}${c.reset}...`);
-  const result = spawnSync('bun', ['install'], { cwd, stdio: 'inherit' });
+  const result = spawnSync('bun', ['install'], { cwd, stdio: 'ignore' });
   if (result.status !== 0) {
     log.error(`Failed to install dependencies in ${cwd}`);
     process.exit(1);
