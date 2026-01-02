@@ -103,7 +103,7 @@ export const formatThreadItem = (item: ThreadItem): { kind: MessageKind; content
   switch (item.type) {
     case 'reasoning': {
       const summary = Array.isArray(item.summary) ? item.summary.join('\n') : ''
-      const content = summary || 'Reasoning summary'
+      const content = summary
       return { kind: 'reasoning', content: clampText(content), title: 'Reasoning' }
     }
     case 'commandExecution': {
@@ -133,6 +133,21 @@ export const formatThreadItem = (item: ThreadItem): { kind: MessageKind; content
     case 'webSearch': {
       const query = typeof item.query === 'string' ? item.query : 'Search'
       return { kind: 'tool', content: clampText(query), title: 'Web Search' }
+    }
+    case 'imageView': {
+      const path = typeof item.path === 'string' ? item.path : 'Image'
+      return { kind: 'tool', content: clampText(path), title: 'Image View' }
+    }
+    case 'enteredReviewMode': {
+      const review = typeof item.review === 'string' ? item.review : 'Review'
+      return { kind: 'tool', content: clampText(review), title: 'Review Started' }
+    }
+    case 'exitedReviewMode': {
+      const review = typeof item.review === 'string' ? item.review : 'Review'
+      return { kind: 'tool', content: clampText(review, 2400), title: 'Review' }
+    }
+    case 'compacted': {
+      return { kind: 'tool', content: 'Conversation compacted to save context.', title: 'Compaction' }
     }
     default:
       return null

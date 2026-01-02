@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir, readFile } from 'node:fs/promises'
+import { join, extname, basename } from 'node:path'
 import { loadConfig } from './config'
 import { CodexSupervisor } from './services/supervisor'
 import { ProfileStore } from './services/profile-store'
@@ -85,6 +86,84 @@ const app = new Elysia()
     {
       params: t.Object({
         profileId: t.String(),
+      }),
+    }
+  )
+  .get(
+    '/profiles/:profileId/prompts',
+    async ({ params }) => {
+      const profile = profileStore.get(params.profileId)
+      if (!profile) {
+        return new Response('Profile not found', { status: 404 })
+      }
+      const promptsDir = join(profile.codexHome, 'prompts')
+      let entries: Array<string> = []
+      try {
+        entries = (await readdir(promptsDir)).filter((entry) => entry.endsWith('.md'))
+      } catch {
+        return { prompts: [] }
+      }
+
+      const prompts = await Promise.all(
+        entries.map(async (entry) => {
+          const fullPath = join(promptsDir, entry)
+          let description: string | undefined
+          try {
+            const raw = await readFile(fullPath, 'utf8')
+            const frontmatterMatch = raw.match(/^---\n([\s\S]*?)\n---/)
+            const frontmatterBody = frontmatterMatch?.[1]
+            if (frontmatterBody !== undefined) {
+              const lines = frontmatterBody.split('\n')
+              const descLine = lines.find((line) => line.trim().startsWith('description:'))
+              if (descLine) {
+                description = descLine
+                  .split(':')
+                  .slice(1)
+                  .join(':')
+                  .trim()
+                  .replace(/^\"|\"$/g, '')
+              }
+            }
+          } catch {
+            // ignore
+          }
+          const name = basename(entry, extname(entry))
+          return { name, description }
+        })
+      )
+
+      return { prompts }
+    },
+    {
+      params: t.Object({
+        profileId: t.String(),
+      }),
+    }
+  )
+  .get(
+    '/profiles/:profileId/prompts/:name',
+    async ({ params }) => {
+      const profile = profileStore.get(params.profileId)
+      if (!profile) {
+        return new Response('Profile not found', { status: 404 })
+      }
+      if (!/^[a-zA-Z0-9._-]+$/.test(params.name)) {
+        return new Response('Invalid prompt name', { status: 400 })
+      }
+      const promptsDir = join(profile.codexHome, 'prompts')
+      const target = params.name.endsWith('.md') ? params.name : `${params.name}.md`
+      const fullPath = join(promptsDir, target)
+      try {
+        const content = await readFile(fullPath, 'utf8')
+        return { content }
+      } catch {
+        return new Response('Prompt not found', { status: 404 })
+      }
+    },
+    {
+      params: t.Object({
+        profileId: t.String(),
+        name: t.String(),
       }),
     }
   )

@@ -7,6 +7,11 @@ export type HubProfile = {
   createdAt: string
 }
 
+export type PromptSummary = {
+  name: string
+  description?: string
+}
+
 type WsEvent =
   | {
       type: 'rpc.event'
@@ -180,6 +185,24 @@ class HubClient {
     if (!response.ok) {
       throw new Error('Failed to remove profile')
     }
+  }
+
+  async listPrompts(profileId: string): Promise<PromptSummary[]> {
+    const response = await fetch(`${HUB_URL}/profiles/${profileId}/prompts`)
+    if (!response.ok) {
+      throw new Error('Failed to load prompts')
+    }
+    const data = (await response.json()) as { prompts: PromptSummary[] }
+    return data.prompts ?? []
+  }
+
+  async readPrompt(profileId: string, name: string): Promise<string> {
+    const response = await fetch(`${HUB_URL}/profiles/${profileId}/prompts/${encodeURIComponent(name)}`)
+    if (!response.ok) {
+      throw new Error('Failed to load prompt')
+    }
+    const data = (await response.json()) as { content?: string }
+    return data.content ?? ''
   }
 
   async request(profileId: string, method: string, params?: unknown): Promise<unknown> {

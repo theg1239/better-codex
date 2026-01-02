@@ -6,6 +6,7 @@ interface SessionAuthBannerProps {
   onChatgpt: () => void
   onApiKey: () => void
   onRefresh?: () => void
+  onCancel?: () => void
 }
 
 export const SessionAuthBanner = ({
@@ -14,6 +15,7 @@ export const SessionAuthBanner = ({
   onChatgpt,
   onApiKey,
   onRefresh,
+  onCancel,
 }: SessionAuthBannerProps) => {
   if (!visible) {
     return null
@@ -42,6 +44,11 @@ export const SessionAuthBanner = ({
           <Button variant="ghost" size="sm" onClick={onApiKey}>
             Use API key
           </Button>
+          {pending && onCancel && (
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Cancel login
+            </Button>
+          )}
           {onRefresh && (
             <Button variant="ghost" size="sm" onClick={onRefresh}>
               Check status

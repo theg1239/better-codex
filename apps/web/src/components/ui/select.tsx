@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Icons } from './icons'
 import { MobileSheet } from './mobile-drawer'
 import { useIsMobile } from '../../hooks/use-mobile'
@@ -31,26 +32,42 @@ export function Select({
   label,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
   const containerRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const isMobile = useIsMobile()
 
   const selectedOption = options.find((opt) => opt.value === value)
 
   useEffect(() => {
+    if (isOpen && buttonRef.current && !isMobile) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setDropdownPosition({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+      })
+    }
+  }, [isOpen, isMobile])
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current && 
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false)
       }
     }
 
-    if (isOpen && !isMobile) {
+    if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside)
     }
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [isOpen, isMobile])
+  }, [isOpen])
 
   const sizeStyles = {
     sm: 'px-2 py-1 text-[11px]',
@@ -67,11 +84,55 @@ export function Select({
     setIsOpen(false)
   }
 
+  const handleButtonClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!disabled) {
+      setIsOpen(!isOpen)
+    }
+  }
+
+  const DropdownContent = !isMobile && isOpen && (
+    <div 
+      className="fixed bg-bg-secondary border border-border rounded-lg shadow-xl z-[9999] overflow-hidden"
+      style={{
+        top: `${dropdownPosition.top - 4}px`,
+        left: `${dropdownPosition.left}px`,
+        minWidth: `${dropdownPosition.width}px`,
+        maxWidth: '280px',
+        transform: 'translateY(-100%)',
+      }}
+    >
+      <div className="max-h-[200px] overflow-y-auto py-1">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              handleSelect(option.value)
+            }}
+            className={`w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors ${dropdownSizeStyles[size]} ${
+              option.value === value ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'
+            }`}
+          >
+            <div className="font-medium truncate">{option.label}</div>
+            {option.description && (
+              <div className="text-[10px] text-text-muted truncate mt-0.5">{option.description}</div>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={handleButtonClick}
         disabled={disabled}
         className={`flex items-center gap-1.5 bg-bg-tertiary border border-border rounded-lg ${sizeStyles[size]} text-text-secondary hover:bg-bg-hover hover:border-text-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0`}
       >
@@ -79,27 +140,7 @@ export function Select({
         <Icons.ChevronDown className={`w-3 h-3 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {!isMobile && isOpen && (
-        <div className="absolute bottom-full left-0 mb-1 w-max min-w-full max-w-[280px] bg-bg-secondary border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-          <div className="max-h-[200px] overflow-y-auto py-1">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleSelect(option.value)}
-                className={`w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors ${dropdownSizeStyles[size]} ${
-                  option.value === value ? 'bg-bg-elevated text-text-primary' : 'text-text-secondary'
-                }`}
-              >
-                <div className="font-medium truncate">{option.label}</div>
-                {option.description && (
-                  <div className="text-[10px] text-text-muted truncate mt-0.5">{option.description}</div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      {!isMobile && DropdownContent && createPortal(DropdownContent, document.body)}
 
       {isMobile && (
         <MobileSheet open={isOpen} onClose={() => setIsOpen(false)}>

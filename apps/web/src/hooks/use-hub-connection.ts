@@ -72,7 +72,22 @@ export const useHubConnection = () => {
     enqueueMessage,
     setMessagesForThread,
     setThreadTurnId,
+    setThreadTokenUsage,
+    setAccountLoginId,
   } = useAppStore()
+
+  const nowTimestamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  const addSystemMessage = (threadId: string, title: string, content: string) => {
+    addMessage(threadId, {
+      id: `sys-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      role: 'assistant',
+      kind: 'tool',
+      title,
+      content,
+      timestamp: nowTimestamp(),
+    })
+  }
 
   useEffect(() => {
     let disposed = false
@@ -165,6 +180,7 @@ export const useHubConnection = () => {
             if (method === 'account/login/completed' && params && typeof params === 'object') {
               // console.log('[HubConnection] Login completed for:', profileId, params)
               const { success } = params as { success?: boolean }
+              setAccountLoginId(profileId, null)
               if (!success) {
                 updateAccount(profileId, (prev) => ({
                   ...prev,
@@ -183,6 +199,18 @@ export const useHubConnection = () => {
                 rateLimit: typeof rate === 'number' ? Math.round(rate) : prev.rateLimit,
                 usage: usage ?? prev.usage,
               }))
+            }
+
+            if (method === 'mcpServer/oauthLogin/completed' && params && typeof params === 'object') {
+              const { name, success, error } = params as { name?: string; success?: boolean; error?: string }
+              const selectedThreadId = useAppStore.getState().selectedThreadId
+              if (selectedThreadId) {
+                addSystemMessage(
+                  selectedThreadId,
+                  'MCP Login',
+                  success ? `${name ?? 'Server'} connected.` : `${name ?? 'Server'} login failed: ${error ?? 'Unknown error'}`
+                )
+              }
             }
 
             if (method === 'thread/started' && params && typeof params === 'object') {
@@ -225,6 +253,53 @@ export const useHubConnection = () => {
               }
             }
 
+            if (method === 'turn/diff/updated' && params && typeof params === 'object') {
+              const { threadId, turnId, diff } = params as { threadId?: string; turnId?: string; diff?: string }
+              if (threadId && diff) {
+                const content = diff.length > 4000 ? `${diff.slice(0, 4000)}\n…` : diff
+                upsertMessage(threadId, {
+                  id: `diff-${turnId ?? threadId}`,
+                  role: 'assistant',
+                  kind: 'file',
+                  title: 'Diff · updated',
+                  content,
+                  timestamp: nowTimestamp(),
+                })
+              }
+            }
+
+            if (method === 'turn/plan/updated' && params && typeof params === 'object') {
+              const { threadId, turnId, plan, explanation } = params as {
+                threadId?: string
+                turnId?: string
+                plan?: Array<{ step?: string; status?: string }>
+                explanation?: string
+              }
+              if (threadId && Array.isArray(plan)) {
+                const steps = plan
+                  .map((entry) => `${entry.status ?? 'pending'} · ${entry.step ?? ''}`.trim())
+                  .filter(Boolean)
+                  .join('\n')
+                const content = [explanation, steps].filter(Boolean).join('\n\n')
+                upsertMessage(threadId, {
+                  id: `plan-${turnId ?? threadId}`,
+                  role: 'assistant',
+                  kind: 'tool',
+                  title: 'Plan',
+                  content: content || 'Plan updated.',
+                  timestamp: nowTimestamp(),
+                })
+              }
+            }
+
+            if (method === 'thread/tokenUsage/updated' && params && typeof params === 'object') {
+              const { threadId } = params as { threadId?: string }
+              const usage = (params as { usage?: unknown }).usage ?? (params as { tokenUsage?: unknown }).tokenUsage
+              if (threadId && usage) {
+                setThreadTokenUsage(threadId, usage)
+              }
+            }
+
             if (method === 'item/agentMessage/delta' && params && typeof params === 'object') {
               const { threadId, itemId, delta } = params as {
                 threadId?: string
@@ -247,7 +322,36 @@ export const useHubConnection = () => {
               }
             }
 
+            if (method === 'item/reasoning/summaryPartAdded' && params && typeof params === 'object') {
+              const { threadId, itemId } = params as { threadId?: string; itemId?: string }
+              if (threadId && itemId) {
+                appendMessageDelta(threadId, itemId, '\n\n')
+              }
+            }
+
+            if (method === 'item/reasoning/textDelta' && params && typeof params === 'object') {
+              const { threadId, itemId, delta } = params as {
+                threadId?: string
+                itemId?: string
+                delta?: string
+              }
+              if (threadId && itemId && delta) {
+                appendMessageDelta(threadId, itemId, delta)
+              }
+            }
+
             if (method === 'item/commandExecution/outputDelta' && params && typeof params === 'object') {
+              const { threadId, itemId, delta } = params as {
+                threadId?: string
+                itemId?: string
+                delta?: string
+              }
+              if (threadId && itemId && delta) {
+                appendMessageDelta(threadId, itemId, delta)
+              }
+            }
+
+            if (method === 'item/fileChange/outputDelta' && params && typeof params === 'object') {
               const { threadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
@@ -270,7 +374,7 @@ export const useHubConnection = () => {
               if (threadId && isThreadItem(item)) {
                 const systemMessage = buildSystemMessage(item)
                 if (systemMessage) {
-                  systemMessage.timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  systemMessage.timestamp = nowTimestamp()
                   upsertMessage(threadId, systemMessage)
                 }
               }
@@ -284,9 +388,17 @@ export const useHubConnection = () => {
               if (threadId && isThreadItem(item)) {
                 const systemMessage = buildSystemMessage(item)
                 if (systemMessage) {
-                  systemMessage.timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  systemMessage.timestamp = nowTimestamp()
                   upsertMessage(threadId, systemMessage)
                 }
+              }
+            }
+
+            if (method === 'error' && params && typeof params === 'object') {
+              const { threadId, error } = params as { threadId?: string; error?: { message?: string } }
+              if (threadId) {
+                const message = error?.message ?? 'Unknown error.'
+                addSystemMessage(threadId, 'Error', message)
               }
             }
           }
@@ -416,12 +528,14 @@ export const useHubConnection = () => {
     ensureAssistantMessage,
     enqueueMessage,
     setAccounts,
+    setAccountLoginId,
     setConnectionStatus,
     setModelsForAccount,
     setSelectedAccountId,
     setSelectedThreadId,
     shiftQueuedMessage,
     setThreadsForAccount,
+    setThreadTokenUsage,
     setThreadTurnId,
     updateAccount,
     updateThread,

@@ -9,6 +9,7 @@ import { filterSlashCommands, findSlashCommand, getSlashQuery, parseSlashInput, 
 import { approvalPolicyDescription, approvalPolicyLabel, normalizeApprovalPolicy } from '../../utils/approval-policy'
 import { normalizeReasoningSummary, reasoningSummaryDescription, reasoningSummaryLabel } from '../../utils/reasoning-summary'
 import { refreshAccountSnapshot } from '../../utils/account-refresh'
+import { expandPromptTemplate, stripPromptFrontmatter } from '../../utils/prompt-expander'
 import { SessionHeader } from '../session-view/session-header'
 import { SessionAuthBanner } from '../session-view/session-auth-banner'
 import { SessionComposer } from '../session-view/session-composer'
@@ -26,6 +27,7 @@ export function SessionView() {
   const [skillsLoading, setSkillsLoading] = useState(false)
   const [skillsError, setSkillsError] = useState<string | null>(null)
   const [skillsList, setSkillsList] = useState<Array<{ name: string; description: string; path: string }>>([])
+  const [promptCommands, setPromptCommands] = useState<SlashCommandDefinition[]>([])
   const [feedbackCategory, setFeedbackCategory] = useState('bug')
   const [feedbackReason, setFeedbackReason] = useState('')
   const [feedbackIncludeLogs, setFeedbackIncludeLogs] = useState(true)
@@ -57,6 +59,7 @@ export function SessionView() {
     threads, 
     selectedThreadId, 
     selectedAccountId,
+    accountLoginIds,
     messages,
     approvals,
     resolveApproval,
@@ -71,6 +74,7 @@ export function SessionView() {
     threadApprovals,
     threadWebSearch,
     threadTurnIds,
+    threadTokenUsage,
     setThreadModel,
     setThreadEffort,
     setThreadApproval,
@@ -86,6 +90,7 @@ export function SessionView() {
     clearQueuedMessages,
     connectionStatus,
     setMessagesForThread,
+    setAccountLoginId,
   } = useAppStore()
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId)
@@ -110,6 +115,7 @@ export function SessionView() {
   const selectedApproval = selectedThreadId ? threadApprovals[selectedThreadId] : undefined
   const selectedSummary = selectedThreadId ? threadSummaries[selectedThreadId] : undefined
   const selectedCwd = selectedThreadId ? threadCwds[selectedThreadId] : undefined
+  const selectedUsage = selectedThreadId ? threadTokenUsage[selectedThreadId] : undefined
   const webSearchEnabled = selectedThreadId ? threadWebSearch[selectedThreadId] ?? false : false
   const isAccountReady = account?.status === 'online'
   const isAuthPending = account?.status === 'degraded'
@@ -118,7 +124,7 @@ export function SessionView() {
   const queuedCount = selectedThreadId ? queuedMessages[selectedThreadId]?.length ?? 0 : 0
   const slashInput = parseSlashInput(inputValue)
   const slashQuery = getSlashQuery(inputValue)
-  const slashMatches = slashQuery !== null ? filterSlashCommands(slashQuery) : []
+  const slashMatches = slashQuery !== null ? filterSlashCommands(slashQuery, promptCommands) : []
   const slashMenuOpen = slashQuery !== null && !slashInput?.rest && slashMatches.length > 0
   
   // @ mention detection
@@ -182,6 +188,38 @@ export function SessionView() {
       setMentionIndex(0)
     }
   }, [mentionMenuOpen, mentionQuery])
+
+  useEffect(() => {
+    if (connectionStatus !== 'connected' || !account) {
+      setPromptCommands([])
+      return
+    }
+    let cancelled = false
+    const loadPrompts = async () => {
+      try {
+        const prompts = await hubClient.listPrompts(account.id)
+        if (cancelled) {
+          return
+        }
+        const commands = prompts.map((prompt) => {
+          return {
+            id: `prompts:${prompt.name}`,
+            description: prompt.description || 'custom prompt',
+            availableDuringTask: false,
+          } as SlashCommandDefinition
+        })
+        setPromptCommands(commands)
+      } catch {
+        if (!cancelled) {
+          setPromptCommands([])
+        }
+      }
+    }
+    void loadPrompts()
+    return () => {
+      cancelled = true
+    }
+  }, [account, connectionStatus])
 
   useEffect(() => {
     if (!mentionQuery || !account) {
@@ -559,6 +597,7 @@ export function SessionView() {
     if (!account || !selectedThreadId) {
       return
     }
+    const usageLine = selectedUsage ? `Token usage: ${JSON.stringify(selectedUsage)}` : null
     const lines = [
       `Account: ${account.name} (${account.status})`,
       `Model: ${effectiveModel || 'default'}`,
@@ -568,13 +607,33 @@ export function SessionView() {
       `Approvals: ${selectedApproval ?? 'default'}`,
       `Connection: ${connectionStatus}`,
     ]
+    if (usageLine) {
+      lines.push(usageLine)
+    }
     addSystemMessage('tool', '/status', lines.join('\n'))
   }
 
-  const runMcpCommand = async () => {
+  const runMcpCommand = async (target?: string) => {
     if (!account) {
       return
     }
+    if (target) {
+      const result = (await hubClient.request(account.id, 'mcpServer/oauth/login', {
+        name: target,
+      })) as { authorization_url?: string; authorizationUrl?: string; authUrl?: string }
+      const authUrl = result.authorization_url ?? result.authorizationUrl ?? result.authUrl
+      if (authUrl) {
+        const opened = window.open(authUrl, '_blank', 'noopener,noreferrer')
+        if (!opened) {
+          setCopyDialog({ open: true, url: authUrl })
+        }
+        addSystemMessage('tool', '/mcp', `Opened OAuth flow for ${target}.`)
+      } else {
+        addSystemMessage('tool', '/mcp', `Unable to start OAuth flow for ${target}.`)
+      }
+      return
+    }
+
     const result = (await hubClient.request(account.id, 'mcpServerStatus/list', {
       limit: 100,
       cursor: null,
@@ -623,7 +682,9 @@ export function SessionView() {
       addSystemMessage('tool', `/${command.id}`, `/${command.id} is disabled while a task is running.`)
       return
     }
-    if (['review', 'new', 'init', 'compact', 'diff', 'mcp', 'feedback', 'logout', 'skills'].includes(command.id)) {
+    const needsConnection = ['review', 'new', 'init', 'compact', 'diff', 'mcp', 'feedback', 'logout', 'skills'].includes(command.id)
+      || command.id.startsWith('prompts:')
+    if (needsConnection) {
       if (connectionStatus !== 'connected') {
         setAlertDialog({
           open: true,
@@ -645,6 +706,21 @@ export function SessionView() {
     }
 
     try {
+      if (command.id.startsWith('prompts:')) {
+        if (!account) {
+          return
+        }
+        const promptName = command.id.slice('prompts:'.length)
+        const raw = await hubClient.readPrompt(account.id, promptName)
+        const content = expandPromptTemplate(stripPromptFrontmatter(raw), rest)
+        if (!content.trim()) {
+          addSystemMessage('tool', '/prompts', `Prompt ${promptName} was empty.`)
+          return
+        }
+        await sendTurn(content.trim())
+        return
+      }
+
       switch (command.id) {
         case 'mention': {
           const value = rest ? `@${rest}` : '@'
@@ -748,7 +824,7 @@ export function SessionView() {
           return
         }
         case 'mcp': {
-          await runMcpCommand()
+          await runMcpCommand(rest || undefined)
           return
         }
         case 'feedback': {
@@ -794,7 +870,7 @@ export function SessionView() {
       return
     }
     if (parsed?.name) {
-      const match = findSlashCommand(parsed.name)
+      const match = findSlashCommand(parsed.name, promptCommands)
       if (match) {
         setInputValue('')
         await runSlashCommand(match, parsed.rest)
@@ -944,8 +1020,11 @@ export function SessionView() {
     try {
       const login = (await hubClient.request(account.id, 'account/login/start', {
         type: 'chatgpt',
-      })) as { authUrl?: string }
+      })) as { authUrl?: string; loginId?: string }
       updateAccount(account.id, (prev) => ({ ...prev, status: 'degraded' }))
+      if (login?.loginId) {
+        setAccountLoginId(account.id, login.loginId)
+      }
       if (login?.authUrl) {
         const opened = window.open(login.authUrl, '_blank', 'noopener,noreferrer')
         if (!opened) {
@@ -973,12 +1052,36 @@ export function SessionView() {
         type: 'apiKey',
         apiKey,
       })
+      setAccountLoginId(account.id, null)
       await refreshAccountStatus(account.id, true)
     } catch {
       setAlertDialog({
         open: true,
         title: 'API Key Failed',
         message: 'Unable to authenticate with that API key. Please check it and try again.',
+        variant: 'error',
+      })
+    }
+  }
+
+  const handleCancelAuth = async () => {
+    if (!account) {
+      return
+    }
+    const loginId = accountLoginIds[account.id]
+    if (!loginId) {
+      return
+    }
+    try {
+      await hubClient.request(account.id, 'account/login/cancel', {
+        loginId,
+      })
+      setAccountLoginId(account.id, null)
+    } catch {
+      setAlertDialog({
+        open: true,
+        title: 'Cancel Failed',
+        message: 'Unable to cancel the login flow right now.',
         variant: 'error',
       })
     }
@@ -1015,6 +1118,29 @@ export function SessionView() {
       return
     }
     await startNewThread(targetAccountId, null)
+  }
+
+  const handleInterruptTurn = async () => {
+    if (!account || !selectedThreadId) {
+      return
+    }
+    const turnId = threadTurnIds[selectedThreadId]
+    if (!turnId) {
+      return
+    }
+    try {
+      await hubClient.request(account.id, 'turn/interrupt', {
+        threadId: selectedThreadId,
+        turnId,
+      })
+    } catch {
+      setAlertDialog({
+        open: true,
+        title: 'Interrupt Failed',
+        message: 'Unable to stop the running turn. Please try again.',
+        variant: 'error',
+      })
+    }
   }
 
   const applyModelDialog = () => {
@@ -1104,6 +1230,7 @@ export function SessionView() {
         pending={isAuthPending}
         onChatgpt={handleChatgptAuth}
         onApiKey={() => setShowApiKeyPrompt(true)}
+        onCancel={account?.id && accountLoginIds[account.id] ? handleCancelAuth : undefined}
         onRefresh={account ? () => void refreshAccountStatus(account.id) : undefined}
       />
       <VirtualizedMessageList
@@ -1131,25 +1258,14 @@ export function SessionView() {
           hubClient.respond(approval.profileId, approval.requestId, { decision: 'decline' })
           resolveApproval(approval.id, 'denied')
         }}
-        onInterrupt={selectedThreadId && threadTurnIds[selectedThreadId] ? async () => {
-          const turnId = threadTurnIds[selectedThreadId]
-          if (selectedThreadId && turnId && selectedThread) {
-            try {
-              await hubClient.request(selectedThread.accountId, 'turn/interrupt', {
-                threadId: selectedThreadId,
-                turnId,
-              })
-            } catch (error) {
-              console.error('[SessionView] Failed to interrupt turn:', error)
-            }
-          }
-        } : undefined}
+        onInterrupt={selectedThreadId && threadTurnIds[selectedThreadId] ? handleInterruptTurn : undefined}
       />
       <SessionComposer
         inputValue={inputValue}
         onInputChange={(value) => setInputValue(value)}
         onKeyDown={handleKeyDown}
         onSend={() => void submitComposer()}
+        onStop={handleInterruptTurn}
         textareaRef={textareaRef}
         canInteract={canInteract}
         slashMenuOpen={slashMenuOpen}

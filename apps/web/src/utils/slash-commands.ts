@@ -18,6 +18,7 @@ export type SlashCommandId =
   | 'quit'
   | 'exit'
   | 'feedback'
+  | `prompts:${string}`
 
 export type SlashCommandDefinition = {
   id: SlashCommandId
@@ -47,16 +48,17 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { id: 'feedback', description: 'send logs to maintainers', availableDuringTask: true },
 ]
 
-export const filterSlashCommands = (query: string) => {
+export const filterSlashCommands = (query: string, extra: SlashCommandDefinition[] = []) => {
+  const allCommands = [...SLASH_COMMANDS, ...extra]
   if (!query) {
-    return SLASH_COMMANDS
+    return allCommands
   }
   const lowered = query.toLowerCase()
-  return SLASH_COMMANDS.filter((command) => command.id.startsWith(lowered))
+  return allCommands.filter((command) => command.id.startsWith(lowered))
 }
 
-export const findSlashCommand = (name: string) =>
-  SLASH_COMMANDS.find((command) => command.id === name)
+export const findSlashCommand = (name: string, extra: SlashCommandDefinition[] = []) =>
+  [...SLASH_COMMANDS, ...extra].find((command) => command.id === name)
 
 export const getSlashQuery = (text: string): string | null => {
   const firstLine = text.split('\n')[0] ?? ''

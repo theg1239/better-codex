@@ -11,6 +11,7 @@ interface SessionComposerProps {
   onInputChange: (value: string) => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
   onSend: () => void
+  onStop?: () => void
   textareaRef: RefObject<HTMLTextAreaElement | null>
   canInteract: boolean
   slashMenuOpen: boolean
@@ -47,6 +48,7 @@ export const SessionComposer = ({
   onInputChange,
   onKeyDown,
   onSend,
+  onStop,
   textareaRef,
   canInteract,
   slashMenuOpen,
@@ -296,6 +298,17 @@ export const SessionComposer = ({
                 <div className="text-[10px] text-text-muted hidden sm:block">
                   Queued {queuedCount}
                 </div>
+              )}
+              {isTaskRunning && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onStop}
+                  disabled={!canInteract || !onStop}
+                >
+                  <Icons.X className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Stop</span>
+                </Button>
               )}
               <Button
                 variant="primary"

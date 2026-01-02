@@ -25,6 +25,7 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
     selectedThreadId, 
     setSelectedThreadId,
     addThread,
+    updateThread,
     activeTab,
     setActiveTab,
     modelsByAccount,
@@ -81,6 +82,15 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
   const defaultModel = accountModels.find((model) => model.isDefault) ?? accountModels[0]
   const defaultEffort = defaultModel?.defaultReasoningEffort
   const isAccountReady = selectedAccount?.status === 'online'
+
+  const archiveThread = async (threadId: string, accountId: string) => {
+    try {
+      await hubClient.request(accountId, 'thread/archive', { threadId })
+      updateThread(threadId, { status: 'archived' })
+    } catch {
+      // TODO: surface error state.
+    }
+  }
 
   const tabs: { key: TabType; label: string }[] = [
     { key: 'sessions', label: 'Sessions' },
@@ -330,31 +340,45 @@ export function ThreadList({ onThreadSelect }: ThreadListProps) {
       <div className="flex-1 overflow-y-auto touch-scroll p-1.5">
         {filteredThreads.map((thread) => {
           const account = accounts.find(a => a.id === thread.accountId)
+          const isSelected = selectedThreadId === thread.id
           return (
-            <button
-              key={thread.id}
-              onClick={() => {
-                setSelectedThreadId(thread.id)
-                onThreadSelect?.(thread.id)
-              }}
-              className={`w-full text-left p-2.5 rounded-lg mb-0.5 transition-colors ${
-                selectedThreadId === thread.id
-                  ? 'bg-bg-elevated border border-border'
-                  : 'hover:bg-bg-hover active:bg-bg-elevated border border-transparent'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <h3 className="text-xs font-medium text-text-primary truncate leading-tight flex-1 min-w-0">{thread.title}</h3>
-                {thread.status === 'active' && <StatusDot status="active" pulse />}
-              </div>
-              <p className="text-[10px] text-text-muted truncate mb-1.5">{thread.preview}</p>
-              <div className="flex items-center gap-1.5 text-[10px] text-text-muted">
-                <Badge>{account?.name}</Badge>
-                <span>·</span>
-                <span>{thread.model}</span>
-                <span className="ml-auto">{thread.messageCount}</span>
-              </div>
-            </button>
+            <div key={thread.id} className="relative group">
+              <button
+                onClick={() => {
+                  setSelectedThreadId(thread.id)
+                  onThreadSelect?.(thread.id)
+                }}
+                className={`w-full text-left p-2.5 pr-10 rounded-lg mb-0.5 transition-colors ${
+                  isSelected
+                    ? 'bg-bg-elevated border border-border'
+                    : 'hover:bg-bg-hover active:bg-bg-elevated border border-transparent'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <h3 className="text-xs font-medium text-text-primary truncate leading-tight flex-1 min-w-0">{thread.title}</h3>
+                  {thread.status === 'active' && <StatusDot status="active" pulse />}
+                </div>
+                <p className="text-[10px] text-text-muted truncate mb-1.5">{thread.preview}</p>
+                <div className="flex items-center gap-1.5 text-[10px] text-text-muted">
+                  <Badge>{account?.name}</Badge>
+                  <span>·</span>
+                  <span>{thread.model}</span>
+                  {/* <span className="ml-auto">{thread.messageCount}</span> */}
+                </div>
+              </button>
+              {activeTab !== 'archive' && (
+                <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <IconButton
+                    icon={<Icons.Archive className="w-3.5 h-3.5 text-text-muted" />}
+                    size="sm"
+                    onClick={(e) => {
+                      e?.stopPropagation()
+                      void archiveThread(thread.id, thread.accountId)
+                    }}
+                  />
+                </div>
+              )}
+            </div>
           )
         })}
       </div>

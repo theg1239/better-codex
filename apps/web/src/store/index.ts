@@ -5,6 +5,7 @@ interface AppState {
   accounts: Account[]
   selectedAccountId: string | null
   connectionStatus: 'idle' | 'connecting' | 'connected' | 'error'
+  accountLoginIds: Record<string, string>
   
   threads: Thread[]
   selectedThreadId: string | null
@@ -16,6 +17,7 @@ interface AppState {
   threadApprovals: Record<string, ApprovalPolicy>
   threadWebSearch: Record<string, boolean>
   threadTurnIds: Record<string, string>
+  threadTokenUsage: Record<string, unknown>
   
   messages: Record<string, Message[]>
   queuedMessages: Record<string, QueuedMessage[]>
@@ -34,6 +36,7 @@ interface AppState {
   removeAccount: (id: string) => void
   updateAccountStatus: (id: string, status: Account['status']) => void
   updateAccount: (id: string, updater: (account: Account) => Account) => void
+  setAccountLoginId: (id: string, loginId: string | null) => void
   
   setSelectedThreadId: (id: string | null) => void
   setThreadsForAccount: (accountId: string, threads: Thread[]) => void
@@ -48,6 +51,7 @@ interface AppState {
   setThreadApproval: (threadId: string, approval: ApprovalPolicy) => void
   setThreadWebSearch: (threadId: string, enabled: boolean) => void
   setThreadTurnId: (threadId: string, turnId: string | null) => void
+  setThreadTokenUsage: (threadId: string, usage: unknown) => void
   
   addMessage: (threadId: string, message: Message) => void
   appendAgentDelta: (threadId: string, messageId: string, delta: string) => void
@@ -76,6 +80,7 @@ export const useAppStore = create<AppState>((set) => ({
   accounts: [],
   selectedAccountId: null,
   connectionStatus: 'idle',
+  accountLoginIds: {},
   threads: [],
   selectedThreadId: null,
   modelsByAccount: {},
@@ -86,6 +91,7 @@ export const useAppStore = create<AppState>((set) => ({
   threadApprovals: {},
   threadWebSearch: {},
   threadTurnIds: {},
+  threadTokenUsage: {},
   messages: {},
   queuedMessages: {},
   approvals: [],
@@ -121,8 +127,13 @@ export const useAppStore = create<AppState>((set) => ({
     const threadApprovals = Object.fromEntries(
       Object.entries(state.threadApprovals).filter(([threadId]) => remainingThreadIds.has(threadId))
     )
+    const threadTokenUsage = Object.fromEntries(
+      Object.entries(state.threadTokenUsage).filter(([threadId]) => remainingThreadIds.has(threadId))
+    )
     const modelsByAccount = { ...state.modelsByAccount }
     delete modelsByAccount[id]
+    const accountLoginIds = { ...state.accountLoginIds }
+    delete accountLoginIds[id]
 
     return {
       accounts: state.accounts.filter((account) => account.id !== id),
@@ -139,7 +150,9 @@ export const useAppStore = create<AppState>((set) => ({
       threadSummaries,
       threadCwds,
       threadApprovals,
+      threadTokenUsage,
       modelsByAccount,
+      accountLoginIds,
       approvals: state.approvals.filter((approval) => approval.profileId !== id),
     }
   }),
@@ -149,6 +162,18 @@ export const useAppStore = create<AppState>((set) => ({
   updateAccount: (id, updater) => set((state) => ({
     accounts: state.accounts.map((a) => (a.id === id ? updater(a) : a)),
   })),
+  setAccountLoginId: (id, loginId) => set((state) => {
+    if (!loginId) {
+      const { [id]: _, ...rest } = state.accountLoginIds
+      return { accountLoginIds: rest }
+    }
+    return {
+      accountLoginIds: {
+        ...state.accountLoginIds,
+        [id]: loginId,
+      },
+    }
+  }),
 
   setSelectedThreadId: (id) => set({ selectedThreadId: id }),
   setThreadsForAccount: (accountId, threads) => set((state) => ({
@@ -171,6 +196,9 @@ export const useAppStore = create<AppState>((set) => ({
     ),
     threadCwds: Object.fromEntries(
       Object.entries(state.threadCwds).filter(([threadId]) => threadId !== id)
+    ),
+    threadTokenUsage: Object.fromEntries(
+      Object.entries(state.threadTokenUsage).filter(([threadId]) => threadId !== id)
     ),
   })),
   updateThread: (id, updates) => set((state) => {
@@ -250,6 +278,12 @@ export const useAppStore = create<AppState>((set) => ({
       },
     }
   }),
+  setThreadTokenUsage: (threadId, usage) => set((state) => ({
+    threadTokenUsage: {
+      ...state.threadTokenUsage,
+      [threadId]: usage,
+    },
+  })),
 
   addMessage: (threadId, message) => set((state) => ({
     messages: {
