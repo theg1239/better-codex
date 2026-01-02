@@ -74,6 +74,8 @@ export function SessionView() {
     threadApprovals,
     threadWebSearch,
     threadTurnIds,
+    threadTurnStartedAt,
+    threadLastTurnDuration,
     threadTokenUsage,
     setThreadModel,
     setThreadEffort,
@@ -1238,6 +1240,8 @@ export function SessionView() {
         approvals={pendingApprovals}
         queuedMessages={selectedThreadId ? queuedMessages[selectedThreadId] || [] : []}
         threadStatus={selectedThread.status}
+        turnStartedAt={selectedThreadId ? threadTurnStartedAt[selectedThreadId] : undefined}
+        lastTurnDuration={selectedThreadId ? threadLastTurnDuration[selectedThreadId] : undefined}
         onApprove={(approval) => {
           hubClient.respond(approval.profileId, approval.requestId, { decision: 'accept' })
           resolveApproval(approval.id, 'approved')

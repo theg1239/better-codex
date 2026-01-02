@@ -17,6 +17,8 @@ interface AppState {
   threadApprovals: Record<string, ApprovalPolicy>
   threadWebSearch: Record<string, boolean>
   threadTurnIds: Record<string, string>
+  threadTurnStartedAt: Record<string, number>
+  threadLastTurnDuration: Record<string, number>
   threadTokenUsage: Record<string, unknown>
   
   messages: Record<string, Message[]>
@@ -51,6 +53,8 @@ interface AppState {
   setThreadApproval: (threadId: string, approval: ApprovalPolicy) => void
   setThreadWebSearch: (threadId: string, enabled: boolean) => void
   setThreadTurnId: (threadId: string, turnId: string | null) => void
+  setThreadTurnStartedAt: (threadId: string, startedAt: number | null) => void
+  setThreadLastTurnDuration: (threadId: string, duration: number | null) => void
   setThreadTokenUsage: (threadId: string, usage: unknown) => void
   
   addMessage: (threadId: string, message: Message) => void
@@ -91,6 +95,8 @@ export const useAppStore = create<AppState>((set) => ({
   threadApprovals: {},
   threadWebSearch: {},
   threadTurnIds: {},
+  threadTurnStartedAt: {},
+  threadLastTurnDuration: {},
   threadTokenUsage: {},
   messages: {},
   queuedMessages: {},
@@ -275,6 +281,30 @@ export const useAppStore = create<AppState>((set) => ({
       threadTurnIds: {
         ...state.threadTurnIds,
         [threadId]: turnId,
+      },
+    }
+  }),
+  setThreadTurnStartedAt: (threadId, startedAt) => set((state) => {
+    if (startedAt === null) {
+      const { [threadId]: _, ...rest } = state.threadTurnStartedAt
+      return { threadTurnStartedAt: rest }
+    }
+    return {
+      threadTurnStartedAt: {
+        ...state.threadTurnStartedAt,
+        [threadId]: startedAt,
+      },
+    }
+  }),
+  setThreadLastTurnDuration: (threadId, duration) => set((state) => {
+    if (duration === null) {
+      const { [threadId]: _, ...rest } = state.threadLastTurnDuration
+      return { threadLastTurnDuration: rest }
+    }
+    return {
+      threadLastTurnDuration: {
+        ...state.threadLastTurnDuration,
+        [threadId]: duration,
       },
     }
   }),

@@ -9,6 +9,8 @@ interface VirtualizedMessageListProps {
   approvals: ApprovalRequest[]
   queuedMessages: QueuedMessage[]
   threadStatus?: ThreadStatus
+  turnStartedAt?: number
+  lastTurnDuration?: number
   onApprove: (approval: ApprovalRequest) => void
   onApproveForSession?: (approval: ApprovalRequest) => void
   onDeny: (approval: ApprovalRequest) => void
@@ -220,6 +222,8 @@ export function VirtualizedMessageList({
   approvals,
   queuedMessages,
   threadStatus,
+  turnStartedAt,
+  lastTurnDuration,
   onApprove,
   onApproveForSession,
   onDeny,
@@ -241,11 +245,15 @@ export function VirtualizedMessageList({
     | { type: 'turn'; data: Turn } 
     | { type: 'approval'; data: ApprovalRequest }
     | { type: 'thinking'; data: null }
+    | { type: 'working'; data: { startedAt: number } }
+    | { type: 'worked'; data: { duration: number } }
     | { type: 'queued'; data: QueuedMessage }
   > = [
     ...turns.map(t => ({ type: 'turn' as const, data: t })),
     ...approvals.map(a => ({ type: 'approval' as const, data: a })),
     ...(isWaitingForResponse ? [{ type: 'thinking' as const, data: null }] : []),
+    ...(isTaskRunning && !isWaitingForResponse && turnStartedAt ? [{ type: 'working' as const, data: { startedAt: turnStartedAt } }] : []),
+    ...(!isTaskRunning && lastTurnDuration ? [{ type: 'worked' as const, data: { duration: lastTurnDuration } }] : []),
     ...queuedMessages.map(q => ({ type: 'queued' as const, data: q })),
   ]
 
@@ -258,6 +266,8 @@ export function VirtualizedMessageList({
       const item = items[index]
       if (item.type === 'approval') return 140
       if (item.type === 'thinking') return 60
+      if (item.type === 'working') return 60
+      if (item.type === 'worked') return 40
       if (item.type === 'queued') return 80
       const turn = item.data as Turn
       const userHeight = turn.userMessage ? 80 : 0
@@ -360,6 +370,10 @@ export function VirtualizedMessageList({
                   <TurnView turn={item.data} />
                 ) : item.type === 'thinking' ? (
                   <ThinkingBubble onInterrupt={isTaskRunning ? onInterrupt : undefined} />
+                ) : item.type === 'working' ? (
+                  <WorkingBubble startedAt={item.data.startedAt} onInterrupt={isTaskRunning ? onInterrupt : undefined} />
+                ) : item.type === 'worked' ? (
+                  <WorkedBubble duration={item.data.duration} />
                 ) : item.type === 'queued' ? (
                   <QueuedMessageBubble message={item.data} />
                 ) : (
@@ -406,6 +420,55 @@ function ThinkingBubble({ onInterrupt }: { onInterrupt?: () => void }) {
             Stop
           </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+function WorkingBubble({ startedAt, onInterrupt }: { startedAt: number; onInterrupt?: () => void }) {
+  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startedAt) / 1000))
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [startedAt])
+  
+  return (
+    <div className="pl-10">
+      <div className="flex items-center gap-2 py-2">
+        <span className="text-text-muted">•</span>
+        <ThinkingIndicator message="Working" elapsed={elapsed} />
+        {onInterrupt && (
+          <button
+            onClick={onInterrupt}
+            className="ml-2 px-2 py-0.5 text-xs text-text-muted hover:text-error hover:bg-error/10 rounded transition-colors"
+          >
+            Stop
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WorkedBubble({ duration }: { duration: number }) {
+  const formatDuration = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
+    const hours = Math.floor(mins / 60)
+    const remainingMins = mins % 60
+    return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`
+  }
+  
+  return (
+    <div className="pl-10">
+      <div className="flex items-center gap-2 py-1">
+        <span className="text-success">✓</span>
+        <span className="text-xs text-text-muted">Worked for {formatDuration(duration)}</span>
       </div>
     </div>
   )

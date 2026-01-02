@@ -72,6 +72,9 @@ export const useHubConnection = () => {
     enqueueMessage,
     setMessagesForThread,
     setThreadTurnId,
+    setThreadTurnStartedAt,
+    setThreadLastTurnDuration,
+    threadTurnStartedAt,
     setThreadTokenUsage,
     setAccountLoginId,
   } = useAppStore()
@@ -237,6 +240,7 @@ export const useHubConnection = () => {
               const { threadId, turn } = params as { threadId?: string; turn?: { id?: string } }
               if (threadId) {
                 updateThread(threadId, { status: 'active' })
+                setThreadTurnStartedAt(threadId, Date.now())
                 if (turn?.id) {
                   setThreadTurnId(threadId, turn.id)
                 }
@@ -247,8 +251,14 @@ export const useHubConnection = () => {
               const { threadId } = params as { threadId?: string }
               // console.log('[HubConnection] turn/completed event for thread:', threadId)
               if (threadId) {
+                const startedAt = threadTurnStartedAt[threadId]
+                if (startedAt) {
+                  const duration = Math.floor((Date.now() - startedAt) / 1000)
+                  setThreadLastTurnDuration(threadId, duration)
+                }
                 updateThread(threadId, { status: 'idle' })                
-                setThreadTurnId(threadId, null)                
+                setThreadTurnId(threadId, null)
+                setThreadTurnStartedAt(threadId, null)
                 void dispatchQueuedMessage(profileId, threadId)
               }
             }
@@ -537,6 +547,9 @@ export const useHubConnection = () => {
     setThreadsForAccount,
     setThreadTokenUsage,
     setThreadTurnId,
+    setThreadTurnStartedAt,
+    setThreadLastTurnDuration,
+    threadTurnStartedAt,
     updateAccount,
     updateThread,
   ])
