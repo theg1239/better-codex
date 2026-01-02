@@ -1,0 +1,21 @@
+{
+  "name": "better-codex",
+  "version": "0.1.0",
+  "description": "Consumer-friendly web launcher for Codex Hub (backend + UI).",
+  "license": "Apache-2.0",
+  "bin": {
+    "better-codex": "bin/better-codex.cjs"
+  },
+  "files": [
+    "apps",
+    "bin/better-codex.cjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.5"
+  }
+}

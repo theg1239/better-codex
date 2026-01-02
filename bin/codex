@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "${1:-}" == "web" ]]; then
+  shift
+  exec bun "$ROOT_DIR/scripts/codex-web.ts" "$@"
+fi
+
+if [[ -n "${CODEX_REAL_BIN:-}" ]]; then
+  exec "$CODEX_REAL_BIN" "$@"
+fi
+
+echo "This wrapper only supports 'codex web'." >&2
+echo "Set CODEX_REAL_BIN to your real codex binary to pass through other commands." >&2
+exit 1

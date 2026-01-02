@@ -1,3 +1,4 @@
 docs/
 codex/
 apps/backend/src/protocol
+node_modules
