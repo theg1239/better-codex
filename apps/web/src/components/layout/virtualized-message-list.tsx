@@ -374,6 +374,7 @@ function getActionType(msg: Message): AssistantAction['type'] {
       return exploratory ? 'explored' : 'ran'
     }
     const title = msg.title?.toLowerCase() ?? ''
+    if (title.includes('account switch') || title.includes('new conversation')) return 'chat'
     if (title.includes('web search')) return 'searched'
     if (title.includes('read') || title.includes('view') || title.includes('list')) return 'explored'
     if (title.includes('edit') || title.includes('wrote') || title.includes('creat')) return 'edited'
@@ -678,8 +679,10 @@ export function VirtualizedMessageList({
   useEffect(() => {
     if (items.length > 0 && !initialScrollDone.current) {
       initialScrollDone.current = true
-      requestAnimationFrame(() => {
-        virtualizer.scrollToIndex(items.length - 1, { align: 'end' })
+      queueMicrotask(() => {
+        requestAnimationFrame(() => {
+          virtualizer.scrollToIndex(items.length - 1, { align: 'end' })
+        })
       })
     }
   }, [items.length, virtualizer])
@@ -707,7 +710,9 @@ export function VirtualizedMessageList({
 
     if (items.length > 0 && hasNewItems && !userHasScrolled && initialScrollDone.current) {
       isAutoScrolling.current = true
-      virtualizer.scrollToIndex(items.length - 1, { align: 'end', behavior: 'smooth' })
+      queueMicrotask(() => {
+        virtualizer.scrollToIndex(items.length - 1, { align: 'end', behavior: 'smooth' })
+      })
       setTimeout(() => {
         isAutoScrolling.current = false
       }, 500)
@@ -719,11 +724,13 @@ export function VirtualizedMessageList({
       return
     }
     isAutoScrolling.current = true
-    requestAnimationFrame(() => {
-      virtualizer.scrollToIndex(items.length - 1, { align: 'end' })
-      setTimeout(() => {
-        isAutoScrolling.current = false
-      }, 200)
+    queueMicrotask(() => {
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(items.length - 1, { align: 'end' })
+        setTimeout(() => {
+          isAutoScrolling.current = false
+        }, 200)
+      })
     })
   }, [isTaskRunning, userHasScrolled, lastMessageSignature, items.length, virtualizer])
 
@@ -731,7 +738,9 @@ export function VirtualizedMessageList({
     if (items.length > 0) {
       setUserHasScrolled(false)
       isAutoScrolling.current = true
-      virtualizer.scrollToIndex(items.length - 1, { align: 'end', behavior: 'smooth' })
+      queueMicrotask(() => {
+        virtualizer.scrollToIndex(items.length - 1, { align: 'end', behavior: 'smooth' })
+      })
       setTimeout(() => {
         isAutoScrolling.current = false
       }, 500)

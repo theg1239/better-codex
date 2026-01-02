@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useAppStore } from '../../store'
 import { type SelectOption } from '../ui'
 import { VirtualizedMessageList } from './virtualized-message-list'
@@ -15,6 +15,7 @@ import { SessionAuthBanner } from '../session-view/session-auth-banner'
 import { SessionComposer } from '../session-view/session-composer'
 import { SessionDialogs } from '../session-view/session-dialogs'
 import { SessionEmpty } from '../session-view/session-empty'
+import { RateLimitBanner, isRateLimitError } from '../session-view/rate-limit-banner'
 
 export function SessionView() {
   const [inputValue, setInputValue] = useState('')
@@ -37,6 +38,8 @@ export function SessionView() {
   const [pendingCwd, setPendingCwd] = useState('')
   const [pendingApproval, setPendingApproval] = useState<ApprovalPolicy>('on-request')
   const [showApiKeyPrompt, setShowApiKeyPrompt] = useState(false)
+  const [showAccountSwitchDialog, setShowAccountSwitchDialog] = useState(false)
+  const [rateLimitBannerDismissed, setRateLimitBannerDismissed] = useState(false)
   // Attachments and file mentions state
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [fileMentions, setFileMentions] = useState<FileMention[]>([])
@@ -77,6 +80,7 @@ export function SessionView() {
     threadTurnStartedAt,
     threadLastTurnDuration,
     threadTokenUsage,
+    threadPendingAccountSwitch,
     setThreadModel,
     setThreadEffort,
     setThreadApproval,
@@ -93,6 +97,8 @@ export function SessionView() {
     connectionStatus,
     setMessagesForThread,
     setAccountLoginId,
+    setThreadPendingAccountSwitch,
+    setBackendToUiThreadId,
   } = useAppStore()
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId)
@@ -119,6 +125,9 @@ export function SessionView() {
   const selectedCwd = selectedThreadId ? threadCwds[selectedThreadId] : undefined
   const selectedUsage = selectedThreadId ? threadTokenUsage[selectedThreadId] : undefined
   const webSearchEnabled = selectedThreadId ? threadWebSearch[selectedThreadId] ?? false : false
+  const selectedWebSearch = webSearchEnabled
+  // Get the effective backend thread ID (may differ from UI thread ID after account switch)
+  const effectiveBackendThreadId = selectedThread?.backendThreadId ?? selectedThreadId
   const isAccountReady = account?.status === 'online'
   const isAuthPending = account?.status === 'degraded'
   const canInteract = connectionStatus === 'connected' && !isArchived && isAccountReady
@@ -143,6 +152,34 @@ export function SessionView() {
   const mentionQuery = getMentionQuery(inputValue)
   const mentionMenuOpen = mentionQuery !== null && !slashMenuOpen
   const mentionMatches = mentionMenuOpen ? fileSearchResults : []
+
+  // Rate limit detection - check recent messages for rate limit errors
+  const rateLimitError = useMemo(() => {
+    if (!threadMessages.length) return null
+    // Check the last 5 messages for rate limit errors
+    const recentMessages = threadMessages.slice(-5)
+    for (const msg of recentMessages) {
+      if (msg.role === 'assistant' && msg.title === 'Error' && isRateLimitError(msg.content)) {
+        return msg.content
+      }
+    }
+    return null
+  }, [threadMessages])
+
+  // Get accounts available for switching (online accounts other than current)
+  const switchableAccounts = useMemo(() => {
+    return accounts.filter(
+      (a) => a.id !== threadAccountId && a.status === 'online'
+    )
+  }, [accounts, threadAccountId])
+
+  // Show rate limit banner when error detected and not dismissed
+  const showRateLimitBanner = !!rateLimitError && !rateLimitBannerDismissed && switchableAccounts.length > 0
+
+  // Reset banner dismissed state when thread changes
+  useEffect(() => {
+    setRateLimitBannerDismissed(false)
+  }, [selectedThreadId])
   
   const modelOptions = models.map((model): SelectOption => ({
     value: model.id,
@@ -426,6 +463,69 @@ export function SessionView() {
     try {
       updateThread(selectedThreadId, { status: 'active' })
       
+      // Check if this thread has a pending account switch
+      // If so, we need to start a new thread on the new account
+      const pendingSwitch = threadPendingAccountSwitch[selectedThreadId]
+      let actualThreadId = selectedThreadId
+      
+      if (pendingSwitch) {
+        // Start a new thread on the new account
+        const newAccountId = selectedThread.accountId
+        const accountModels = modelsByAccount[newAccountId] || []
+        const defaultThreadModel = accountModels.find((model) => model.isDefault) ?? accountModels[0]
+        const startParams: { model?: string; approvalPolicy?: ApprovalPolicy; config?: Record<string, unknown> } = {}
+        if (defaultThreadModel?.id) {
+          startParams.model = defaultThreadModel.id
+        }
+        if (selectedApproval) {
+          startParams.approvalPolicy = selectedApproval
+        }
+        if (selectedWebSearch) {
+          startParams.config = { 'features.web_search_request': true }
+        }
+        
+        const result = (await hubClient.request(newAccountId, 'thread/start', startParams)) as {
+          thread?: {
+            id: string
+            preview?: string
+            modelProvider?: string
+            createdAt?: number
+          }
+          reasoningEffort?: ReasoningEffort | null
+          approvalPolicy?: ApprovalPolicy | null
+        }
+        
+        if (!result.thread) {
+          throw new Error('Failed to start new thread on switched account')
+        }
+        
+        // Use the new backend thread ID for this turn
+        actualThreadId = result.thread.id
+        
+        // Map the backend thread ID to the UI thread ID so events get routed correctly
+        setBackendToUiThreadId(actualThreadId, selectedThreadId)
+        
+        // Update the local thread to use the new backend thread ID
+        // We keep the same local thread but update its properties
+        updateThread(selectedThreadId, { 
+          backendThreadId: actualThreadId,
+          status: 'active',
+        })
+        
+        // Clear the pending switch flag
+        setThreadPendingAccountSwitch(selectedThreadId, null)
+        
+        // Add a system message noting the new thread was created
+        addMessage(selectedThreadId, {
+          id: `sys-new-thread-${Date.now()}`,
+          role: 'assistant',
+          content: `New conversation started on this account. Previous context from ${pendingSwitch.previousAccountId} is shown for reference but not available to the model.`,
+          kind: 'tool',
+          title: 'New Conversation',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        })
+      }
+      
       // Build input array with text, images, and file references
       const input: Array<{ type: string; text?: string; url?: string; path?: string }> = []
       
@@ -453,7 +553,7 @@ export function SessionView() {
         cwd?: string
         approvalPolicy?: ApprovalPolicy
       } = {
-        threadId: selectedThreadId,
+        threadId: actualThreadId,
         input,
       }
       if (effectiveModel) {
@@ -656,14 +756,14 @@ export function SessionView() {
   }
 
   const runReviewCommand = async (instructions?: string) => {
-    if (!selectedThreadId || !account) {
+    if (!selectedThreadId || !account || !effectiveBackendThreadId) {
       return
     }
     const target = instructions
       ? { type: 'custom', instructions }
       : { type: 'uncommittedChanges' }
     await hubClient.request(account.id, 'review/start', {
-      threadId: selectedThreadId,
+      threadId: effectiveBackendThreadId,
       target,
       delivery: 'inline',
     })
@@ -790,6 +890,36 @@ export function SessionView() {
             return
           }
           setShowApprovalsDialog(true)
+          return
+        }
+        case 'switch': {
+          // If an account name is provided, try to switch directly
+          if (rest) {
+            const targetAccount = accounts.find(
+              (a) => a.name.toLowerCase() === rest.toLowerCase() ||
+                     a.id === rest
+            )
+            if (targetAccount && targetAccount.status === 'online' && targetAccount.id !== threadAccountId) {
+              handleSwitchThreadAccount(targetAccount.id)
+              return
+            }
+            if (targetAccount && targetAccount.id === threadAccountId) {
+              addSystemMessage('tool', '/switch', `Already using account: ${targetAccount.name}`)
+              return
+            }
+            if (targetAccount && targetAccount.status !== 'online') {
+              addSystemMessage('tool', '/switch', `Account "${targetAccount.name}" is not authenticated.`)
+              return
+            }
+            addSystemMessage('tool', '/switch', `Account "${rest}" not found.`)
+            return
+          }
+          // Show dialog if no account specified
+          if (switchableAccounts.length === 0) {
+            addSystemMessage('tool', '/switch', 'No other authenticated accounts available to switch to.')
+            return
+          }
+          setShowAccountSwitchDialog(true)
           return
         }
         case 'review': {
@@ -966,12 +1096,12 @@ export function SessionView() {
   }
 
   const handleArchive = async () => {
-    if (!selectedThreadId || !selectedThread || !canInteract) {
+    if (!selectedThreadId || !selectedThread || !canInteract || !effectiveBackendThreadId) {
       return
     }
     try {
       await hubClient.request(selectedThread.accountId, 'thread/archive', {
-        threadId: selectedThreadId,
+        threadId: effectiveBackendThreadId,
       })
       updateThread(selectedThreadId, { status: 'archived' })
       clearQueuedMessages(selectedThreadId)
@@ -1123,7 +1253,7 @@ export function SessionView() {
   }
 
   const handleInterruptTurn = async () => {
-    if (!account || !selectedThreadId) {
+    if (!account || !selectedThreadId || !effectiveBackendThreadId) {
       return
     }
     const turnId = threadTurnIds[selectedThreadId]
@@ -1132,7 +1262,7 @@ export function SessionView() {
     }
     try {
       await hubClient.request(account.id, 'turn/interrupt', {
-        threadId: selectedThreadId,
+        threadId: effectiveBackendThreadId,
         turnId,
       })
     } catch {
@@ -1213,6 +1343,55 @@ export function SessionView() {
     }
   }
 
+  const handleSwitchThreadAccount = (newAccountId: string) => {
+    if (!selectedThreadId || !selectedThread) {
+      return
+    }
+    
+    const newAccount = accounts.find((a) => a.id === newAccountId)
+    if (!newAccount || newAccount.status !== 'online') {
+      setAlertDialog({
+        open: true,
+        title: 'Account Unavailable',
+        message: 'Selected account is not authenticated. Please sign in first.',
+        variant: 'warning',
+      })
+      return
+    }
+
+    const previousAccountId = selectedThread.accountId
+
+    // Mark this thread as having a pending account switch
+    // The next message sent will start a fresh conversation on the new account
+    setThreadPendingAccountSwitch(selectedThreadId, {
+      originalThreadId: selectedThreadId,
+      previousAccountId,
+    })
+
+    // Update thread's accountId
+    updateThread(selectedThreadId, { accountId: newAccountId })
+
+    // Reset model selection to the new account's default model
+    const newAccountModels = modelsByAccount[newAccountId] || []
+    const newDefaultModel = newAccountModels.find((m) => m.isDefault) ?? newAccountModels[0]
+    if (newDefaultModel) {
+      setThreadModel(selectedThreadId, newDefaultModel.id)
+      if (newDefaultModel.defaultReasoningEffort) {
+        setThreadEffort(selectedThreadId, newDefaultModel.defaultReasoningEffort)
+      }
+    }
+
+    // Add a system message to indicate the switch
+    addMessage(selectedThreadId, {
+      id: `sys-switch-${Date.now()}`,
+      role: 'assistant',
+      content: `Switched to account: ${newAccount.name}. Your next message will start a new conversation using this account.`,
+      kind: 'tool',
+      title: 'Account Switch',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    })
+  }
+
   if (!selectedThread) {
     return <SessionEmpty onNewSession={handleEmptyNewSession} />
   }
@@ -1221,11 +1400,14 @@ export function SessionView() {
     <main className="flex-1 flex flex-col h-full bg-bg-primary overflow-hidden">
       <SessionHeader
         title={selectedThread.title}
+        accountId={selectedThread.accountId}
         accountName={account?.name}
+        accounts={accounts}
         model={selectedThread.model}
         status={selectedThread.status}
         canInteract={canInteract}
         onArchive={handleArchive}
+        onSwitchAccount={handleSwitchThreadAccount}
       />
       <SessionAuthBanner
         visible={!isAccountReady}
@@ -1234,6 +1416,14 @@ export function SessionView() {
         onApiKey={() => setShowApiKeyPrompt(true)}
         onCancel={account?.id && accountLoginIds[account.id] ? handleCancelAuth : undefined}
         onRefresh={account ? () => void refreshAccountStatus(account.id) : undefined}
+      />
+      <RateLimitBanner
+        visible={showRateLimitBanner}
+        currentAccount={account}
+        availableAccounts={switchableAccounts}
+        errorMessage={rateLimitError ?? undefined}
+        onSwitchAccount={handleSwitchThreadAccount}
+        onDismiss={() => setRateLimitBannerDismissed(true)}
       />
       <VirtualizedMessageList
         messages={threadMessages}
@@ -1347,6 +1537,11 @@ export function SessionView() {
         onCloseResumeDialog={() => setShowResumeDialog(false)}
         resumeCandidates={resumeCandidates}
         onResumeThread={handleResumeThread}
+        showAccountSwitchDialog={showAccountSwitchDialog}
+        onCloseAccountSwitchDialog={() => setShowAccountSwitchDialog(false)}
+        currentAccount={account}
+        switchableAccounts={switchableAccounts}
+        onSwitchAccount={handleSwitchThreadAccount}
         showFeedbackDialog={showFeedbackDialog}
         onCloseFeedbackDialog={() => setShowFeedbackDialog(false)}
         feedbackCategory={feedbackCategory}

@@ -59,10 +59,12 @@ export class JsonRpcConnection extends EventEmitter {
     })
 
     stdout.on('end', () => {
+      this.rejectAllPending(new Error('connection closed'))
       this.emit('close')
     })
 
     stdout.on('error', (error) => {
+      this.rejectAllPending(error)
       this.emit('error', error)
     })
 
@@ -160,6 +162,17 @@ export class JsonRpcConnection extends EventEmitter {
 
   private writeMessage(message: JsonRpcRequest | JsonRpcResponse | JsonRpcNotification): void {
     this.stdin.write(`${JSON.stringify(message)}\n`)
+  }
+
+  private rejectAllPending(error: Error): void {
+    if (!this.pending.size) {
+      return
+    }
+    const message = error.message || 'connection closed'
+    for (const [, pending] of this.pending) {
+      pending.reject({ message })
+    }
+    this.pending.clear()
   }
 }
 

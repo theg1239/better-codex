@@ -1,5 +1,5 @@
-import type { ApprovalPolicy, ReasoningEffort, ReasoningSummary } from '../../types'
-import { AlertDialog, Button, CopyDialog, Dialog, PromptDialog, Select, type SelectOption } from '../ui'
+import type { Account, ApprovalPolicy, ReasoningEffort, ReasoningSummary } from '../../types'
+import { AlertDialog, Button, CopyDialog, Dialog, Icons, PromptDialog, Select, type SelectOption } from '../ui'
 
 interface SessionDialogsProps {
   showModelDialog: boolean
@@ -32,6 +32,11 @@ interface SessionDialogsProps {
   onCloseResumeDialog: () => void
   resumeCandidates: Array<{ id: string; title: string; preview: string }>
   onResumeThread: (threadId: string) => void
+  showAccountSwitchDialog: boolean
+  onCloseAccountSwitchDialog: () => void
+  currentAccount?: Account
+  switchableAccounts: Account[]
+  onSwitchAccount: (accountId: string) => void
   showFeedbackDialog: boolean
   onCloseFeedbackDialog: () => void
   feedbackCategory: string
@@ -81,6 +86,11 @@ export const SessionDialogs = ({
   onCloseResumeDialog,
   resumeCandidates,
   onResumeThread,
+  showAccountSwitchDialog,
+  onCloseAccountSwitchDialog,
+  currentAccount,
+  switchableAccounts,
+  onSwitchAccount,
   showFeedbackDialog,
   onCloseFeedbackDialog,
   feedbackCategory,
@@ -209,6 +219,87 @@ export const SessionDialogs = ({
               <div className="text-[10px] text-text-muted mt-0.5 truncate">{thread.preview}</div>
             </button>
           ))}
+        </div>
+      </Dialog>
+
+      <Dialog open={showAccountSwitchDialog} onClose={onCloseAccountSwitchDialog} title="Switch Account">
+        <div className="space-y-3">
+          <p className="text-xs text-text-muted">
+            Continue this thread with a different account. The conversation history will be preserved.
+          </p>
+          
+          {currentAccount && (
+            <div className="p-3 rounded-lg bg-bg-tertiary border border-border">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${
+                  currentAccount.status === 'online' ? 'bg-accent-green' : 'bg-text-muted'
+                }`} />
+                <span className="text-xs font-medium text-text-primary">{currentAccount.name}</span>
+                <span className="text-[10px] text-text-muted ml-auto">current</span>
+              </div>
+              {currentAccount.usage?.primary && (
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1 bg-bg-primary rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all ${
+                        currentAccount.usage.primary.usedPercent >= 90 ? 'bg-accent-red' :
+                        currentAccount.usage.primary.usedPercent >= 80 ? 'bg-accent-orange' :
+                        'bg-accent-green'
+                      }`}
+                      style={{ width: `${Math.min(100, currentAccount.usage.primary.usedPercent)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-text-muted">
+                    {Math.round(currentAccount.usage.primary.usedPercent)}% used
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-[200px] overflow-y-auto">
+            {switchableAccounts.length === 0 && (
+              <div className="text-xs text-text-muted py-4 text-center">
+                No other authenticated accounts available.
+              </div>
+            )}
+            {switchableAccounts.map((account) => (
+              <button
+                key={account.id}
+                type="button"
+                onClick={() => {
+                  onSwitchAccount(account.id)
+                  onCloseAccountSwitchDialog()
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-border bg-bg-tertiary hover:bg-bg-hover hover:border-text-muted/40 transition-colors"
+              >
+                <div className={`w-2 h-2 rounded-full ${
+                  account.status === 'online' ? 'bg-accent-green' : 'bg-text-muted'
+                }`} />
+                <div className="flex-1 min-w-0 text-left">
+                  <div className="text-xs font-medium text-text-primary truncate">{account.name}</div>
+                  {account.usage?.primary && (
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="flex-1 h-1 bg-bg-primary rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all ${
+                            account.usage.primary.usedPercent >= 90 ? 'bg-accent-red' :
+                            account.usage.primary.usedPercent >= 80 ? 'bg-accent-orange' :
+                            'bg-accent-green'
+                          }`}
+                          style={{ width: `${Math.min(100, account.usage.primary.usedPercent)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-text-muted">
+                        {Math.round(account.usage.primary.usedPercent)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <Icons.ArrowRight className="w-4 h-4 text-text-muted shrink-0" />
+              </button>
+            ))}
+          </div>
         </div>
       </Dialog>
 

@@ -20,6 +20,8 @@ interface AppState {
   threadTurnStartedAt: Record<string, number>
   threadLastTurnDuration: Record<string, number>
   threadTokenUsage: Record<string, unknown>
+  threadPendingAccountSwitch: Record<string, { originalThreadId: string; previousAccountId: string }>
+  backendToUiThreadId: Record<string, string>
   
   messages: Record<string, Message[]>
   queuedMessages: Record<string, QueuedMessage[]>
@@ -59,6 +61,9 @@ interface AppState {
   setThreadTurnStartedAt: (threadId: string, startedAt: number | null) => void
   setThreadLastTurnDuration: (threadId: string, duration: number | null) => void
   setThreadTokenUsage: (threadId: string, usage: unknown) => void
+  setThreadPendingAccountSwitch: (threadId: string, pending: { originalThreadId: string; previousAccountId: string } | null) => void
+  setBackendToUiThreadId: (backendThreadId: string, uiThreadId: string | null) => void
+  resolveThreadId: (threadId: string) => string
   
   addMessage: (threadId: string, message: Message) => void
   appendAgentDelta: (threadId: string, messageId: string, delta: string) => void
@@ -87,7 +92,7 @@ interface AppState {
   closeMobileDrawers: () => void
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   accounts: [],
   selectedAccountId: null,
   connectionStatus: 'idle',
@@ -105,6 +110,8 @@ export const useAppStore = create<AppState>((set) => ({
   threadTurnStartedAt: {},
   threadLastTurnDuration: {},
   threadTokenUsage: {},
+  threadPendingAccountSwitch: {},
+  backendToUiThreadId: {},
   messages: {},
   queuedMessages: {},
   approvals: [],
@@ -325,6 +332,34 @@ export const useAppStore = create<AppState>((set) => ({
       [threadId]: usage,
     },
   })),
+  setThreadPendingAccountSwitch: (threadId, pending) => set((state) => {
+    if (pending === null) {
+      const { [threadId]: _, ...rest } = state.threadPendingAccountSwitch
+      return { threadPendingAccountSwitch: rest }
+    }
+    return {
+      threadPendingAccountSwitch: {
+        ...state.threadPendingAccountSwitch,
+        [threadId]: pending,
+      },
+    }
+  }),
+  setBackendToUiThreadId: (backendThreadId, uiThreadId) => set((state) => {
+    if (uiThreadId === null) {
+      const { [backendThreadId]: _, ...rest } = state.backendToUiThreadId
+      return { backendToUiThreadId: rest }
+    }
+    return {
+      backendToUiThreadId: {
+        ...state.backendToUiThreadId,
+        [backendThreadId]: uiThreadId,
+      },
+    }
+  }),
+  resolveThreadId: (threadId: string): string => {
+    const state = get()
+    return state.backendToUiThreadId[threadId] ?? threadId
+  },
 
   addMessage: (threadId, message) => set((state) => ({
     messages: {

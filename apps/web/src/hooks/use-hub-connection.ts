@@ -78,9 +78,15 @@ export const useHubConnection = () => {
     setAccountLoginId,
     upsertReviewSession,
     updateReviewSession,
+    resolveThreadId,
   } = useAppStore()
 
   const nowTimestamp = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+  const resolve = (backendThreadId: string | undefined): string | undefined => {
+    if (!backendThreadId) return undefined
+    return resolveThreadId(backendThreadId)
+  }
 
   const addSystemMessage = (threadId: string, title: string, content: string) => {
     addMessage(threadId, {
@@ -238,7 +244,8 @@ export const useHubConnection = () => {
             }
 
             if (method === 'turn/started' && params && typeof params === 'object') {
-              const { threadId, turn } = params as { threadId?: string; turn?: { id?: string } }
+              const { threadId: rawThreadId, turn } = params as { threadId?: string; turn?: { id?: string } }
+              const threadId = resolve(rawThreadId)
               if (threadId) {
                 updateThread(threadId, { status: 'active' })
                 setThreadTurnStartedAt(threadId, Date.now())
@@ -249,7 +256,8 @@ export const useHubConnection = () => {
             }
 
             if (method === 'turn/completed' && params && typeof params === 'object') {
-              const { threadId, turn } = params as { threadId?: string; turn?: { id?: string; status?: string } }
+              const { threadId: rawThreadId, turn } = params as { threadId?: string; turn?: { id?: string; status?: string } }
+              const threadId = resolve(rawThreadId)
               // console.log('[HubConnection] turn/completed event for thread:', threadId)
               if (threadId) {
                 const startedAt = useAppStore.getState().threadTurnStartedAt[threadId]
@@ -271,7 +279,8 @@ export const useHubConnection = () => {
             }
 
             if (method === 'turn/diff/updated' && params && typeof params === 'object') {
-              const { threadId, turnId, diff } = params as { threadId?: string; turnId?: string; diff?: string }
+              const { threadId: rawThreadId, turnId, diff } = params as { threadId?: string; turnId?: string; diff?: string }
+              const threadId = resolve(rawThreadId)
               if (threadId && diff) {
                 const content = diff.length > 4000 ? `${diff.slice(0, 4000)}\n…` : diff
                 upsertMessage(threadId, {
@@ -287,12 +296,13 @@ export const useHubConnection = () => {
             }
 
             if (method === 'turn/plan/updated' && params && typeof params === 'object') {
-              const { threadId, turnId, plan, explanation } = params as {
+              const { threadId: rawThreadId, turnId, plan, explanation } = params as {
                 threadId?: string
                 turnId?: string
                 plan?: Array<{ step?: string; status?: string }>
                 explanation?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && Array.isArray(plan)) {
                 const steps = plan
                   .map((entry) => `${entry.status ?? 'pending'} · ${entry.step ?? ''}`.trim())
@@ -311,7 +321,8 @@ export const useHubConnection = () => {
             }
 
             if (method === 'thread/tokenUsage/updated' && params && typeof params === 'object') {
-              const { threadId } = params as { threadId?: string }
+              const { threadId: rawThreadId } = params as { threadId?: string }
+              const threadId = resolve(rawThreadId)
               const usage = (params as { usage?: unknown }).usage ?? (params as { tokenUsage?: unknown }).tokenUsage
               if (threadId && usage) {
                 setThreadTokenUsage(threadId, usage)
@@ -319,73 +330,80 @@ export const useHubConnection = () => {
             }
 
             if (method === 'item/agentMessage/delta' && params && typeof params === 'object') {
-              const { threadId, itemId, delta } = params as {
+              const { threadId: rawThreadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
                 delta?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId && delta) {
                 appendMessageDelta(threadId, itemId, delta)
               }
             }
 
             if (method === 'item/reasoning/summaryTextDelta' && params && typeof params === 'object') {
-              const { threadId, itemId, delta } = params as {
+              const { threadId: rawThreadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
                 delta?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId && delta) {
                 appendMessageDelta(threadId, itemId, delta)
               }
             }
 
             if (method === 'item/reasoning/summaryPartAdded' && params && typeof params === 'object') {
-              const { threadId, itemId } = params as { threadId?: string; itemId?: string }
+              const { threadId: rawThreadId, itemId } = params as { threadId?: string; itemId?: string }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId) {
                 appendMessageDelta(threadId, itemId, '\n\n')
               }
             }
 
             if (method === 'item/reasoning/textDelta' && params && typeof params === 'object') {
-              const { threadId, itemId, delta } = params as {
+              const { threadId: rawThreadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
                 delta?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId && delta) {
                 appendMessageDelta(threadId, itemId, delta)
               }
             }
 
             if (method === 'item/commandExecution/outputDelta' && params && typeof params === 'object') {
-              const { threadId, itemId, delta } = params as {
+              const { threadId: rawThreadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
                 delta?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId && delta) {
                 appendMessageDelta(threadId, itemId, delta)
               }
             }
 
             if (method === 'item/fileChange/outputDelta' && params && typeof params === 'object') {
-              const { threadId, itemId, delta } = params as {
+              const { threadId: rawThreadId, itemId, delta } = params as {
                 threadId?: string
                 itemId?: string
                 delta?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && itemId && delta) {
                 appendMessageDelta(threadId, itemId, delta)
               }
             }
 
             if (method === 'item/started' && params && typeof params === 'object') {
-              const { item, threadId, turnId } = params as {
+              const { item, threadId: rawThreadId, turnId } = params as {
                 item?: ItemPayload & { review?: string }
                 threadId?: string
                 turnId?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && item?.type === 'agentMessage' && item.id) {
                 ensureAssistantMessage(threadId, item.id)
                 return
@@ -411,11 +429,12 @@ export const useHubConnection = () => {
             }
 
             if (method === 'item/completed' && params && typeof params === 'object') {
-              const { item, threadId, turnId } = params as {
+              const { item, threadId: rawThreadId, turnId } = params as {
                 item?: ItemPayload & { review?: string }
                 threadId?: string
                 turnId?: string
               }
+              const threadId = resolve(rawThreadId)
               if (threadId && item?.type === 'exitedReviewMode') {
                 const sessionId = turnId ?? item.id
                 if (sessionId) {
@@ -436,7 +455,8 @@ export const useHubConnection = () => {
             }
 
             if (method === 'error' && params && typeof params === 'object') {
-              const { threadId, error } = params as { threadId?: string; error?: { message?: string } }
+              const { threadId: rawThreadId, error } = params as { threadId?: string; error?: { message?: string } }
+              const threadId = resolve(rawThreadId)
               if (threadId) {
                 const message = error?.message ?? 'Unknown error.'
                 addSystemMessage(threadId, 'Error', message)
@@ -467,11 +487,12 @@ export const useHubConnection = () => {
                 parsedCmd?: string
                 command?: string[]
               }
+              const resolvedThreadId = resolve(parsed.threadId) ?? ''
               addApproval({
                 id: parsed.itemId ?? String(id),
                 requestId: id,
                 profileId,
-                threadId: parsed.threadId ?? '',
+                threadId: resolvedThreadId,
                 type: 'command',
                 payload: parsed.parsedCmd ?? parsed.command?.join(' ') ?? 'Command approval required',
                 status: 'pending',
@@ -484,11 +505,12 @@ export const useHubConnection = () => {
                 threadId?: string
                 reason?: string
               }
+              const resolvedThreadId = resolve(parsed.threadId) ?? ''
               addApproval({
                 id: parsed.itemId ?? String(id),
                 requestId: id,
                 profileId,
-                threadId: parsed.threadId ?? '',
+                threadId: resolvedThreadId,
                 type: 'file',
                 payload: parsed.reason ?? 'File changes requested',
                 status: 'pending',

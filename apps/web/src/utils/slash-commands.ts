@@ -4,6 +4,7 @@ export type SlashCommandId =
   | 'cwd'
   | 'approvals'
   | 'skills'
+  | 'switch'
   | 'review'
   | 'new'
   | 'resume'
@@ -32,6 +33,7 @@ export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { id: 'cwd', description: 'set working directory for the thread', availableDuringTask: false },
   { id: 'approvals', description: 'choose what Codex can do without approval', availableDuringTask: false },
   { id: 'skills', description: 'browse and insert skills', availableDuringTask: true },
+  { id: 'switch', description: 'switch to a different account for this thread', availableDuringTask: false },
   { id: 'review', description: 'review my current changes and find issues', availableDuringTask: false },
   { id: 'new', description: 'start a new chat during a conversation', availableDuringTask: false },
   { id: 'resume', description: 'resume a saved chat', availableDuringTask: false },

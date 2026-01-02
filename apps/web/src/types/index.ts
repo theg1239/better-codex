@@ -83,6 +83,7 @@ export interface Thread {
   createdAt: string
   status: ThreadStatus
   messageCount: number
+  backendThreadId?: string
 }
 
 export interface Message {
