@@ -1,0 +1,195 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  
+  --color-bg-primary: #0d0d0d;
+  --color-bg-secondary: #171717;
+  --color-bg-tertiary: #1f1f1f;
+  --color-bg-elevated: #262626;
+  --color-bg-hover: #2a2a2a;
+  
+  --color-border: #2f2f2f;
+  --color-border-subtle: #262626;
+  
+  --color-text-primary: #ececec;
+  --color-text-secondary: #a1a1a1;
+  --color-text-muted: #6b6b6b;
+  
+  --color-accent-green: #10b981;
+  --color-accent-green-soft: rgba(16, 185, 129, 0.15);
+  --color-accent-red: #ef4444;
+  --color-accent-red-soft: rgba(239, 68, 68, 0.15);
+  --color-accent-blue: #3b82f6;
+  --color-accent-pink: #ec4899;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  
+  body {
+    margin: 0;
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  #root {
+    min-height: 100vh;
+  }
+
+  button {
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  input {
+    font-family: inherit;
+  }
+
+  input::placeholder {
+    color: var(--color-text-muted);
+  }
+}
+
+/* Markdown content styles */
+@layer components {
+  .markdown-content {
+    line-height: 1.6;
+  }
+  
+  .markdown-content p {
+    margin: 0.5em 0;
+  }
+  
+  .markdown-content p:first-child {
+    margin-top: 0;
+  }
+  
+  .markdown-content p:last-child {
+    margin-bottom: 0;
+  }
+  
+  .markdown-content strong {
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  
+  .markdown-content em {
+    font-style: italic;
+  }
+  
+  .markdown-content code {
+    font-family: 'SF Mono', 'Fira Code', 'Monaco', 'Menlo', monospace;
+    font-size: 0.875em;
+    background-color: var(--color-bg-primary);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: var(--color-accent-green);
+  }
+  
+  .markdown-content pre {
+    margin: 0.75em 0;
+    padding: 0.875rem 1rem;
+    background-color: var(--color-bg-primary);
+    border-radius: 8px;
+    overflow-x: auto;
+    border: 1px solid var(--color-border-subtle);
+  }
+  
+  .markdown-content pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+  
+  .markdown-content ul,
+  .markdown-content ol {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+  }
+  
+  .markdown-content li {
+    margin: 0.25em 0;
+  }
+  
+  .markdown-content li::marker {
+    color: var(--color-text-muted);
+  }
+  
+  .markdown-content blockquote {
+    margin: 0.5em 0;
+    padding-left: 1em;
+    border-left: 3px solid var(--color-border);
+    color: var(--color-text-secondary);
+  }
+  
+  .markdown-content h1,
+  .markdown-content h2,
+  .markdown-content h3,
+  .markdown-content h4 {
+    margin: 1em 0 0.5em;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  
+  .markdown-content h1:first-child,
+  .markdown-content h2:first-child,
+  .markdown-content h3:first-child,
+  .markdown-content h4:first-child {
+    margin-top: 0;
+  }
+  
+  .markdown-content a {
+    color: var(--color-accent-blue);
+    text-decoration: none;
+  }
+  
+  .markdown-content a:hover {
+    text-decoration: underline;
+  }
+  
+  .markdown-content table {
+    width: 100%;
+    margin: 0.75em 0;
+    border-collapse: collapse;
+    font-size: 0.875em;
+  }
+  
+  .markdown-content th,
+  .markdown-content td {
+    padding: 0.5em 0.75em;
+    border: 1px solid var(--color-border-subtle);
+    text-align: left;
+  }
+  
+  .markdown-content th {
+    background-color: var(--color-bg-primary);
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  
+  .markdown-content tr:nth-child(even) {
+    background-color: var(--color-bg-primary);
+  }
+  
+  .markdown-content hr {
+    margin: 1em 0;
+    border: none;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+}
+
+/* Utility classes */
+@layer utilities {
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
