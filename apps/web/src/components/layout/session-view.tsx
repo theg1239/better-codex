@@ -3,7 +3,7 @@ import { useAppStore } from '../../store'
 import { type SelectOption } from '../ui'
 import { VirtualizedMessageList } from './virtualized-message-list'
 import { hubClient } from '../../services/hub-client'
-import type { ApprovalPolicy, MessageKind, ReasoningEffort, ReasoningSummary } from '../../types'
+import type { ApprovalPolicy, Attachment, FileMention, MessageKind, ReasoningEffort, ReasoningSummary } from '../../types'
 import { INIT_PROMPT } from '../../utils/init-prompt'
 import { filterSlashCommands, findSlashCommand, getSlashQuery, parseSlashInput, type SlashCommandDefinition } from '../../utils/slash-commands'
 import { approvalPolicyDescription, approvalPolicyLabel, normalizeApprovalPolicy } from '../../utils/approval-policy'
@@ -35,6 +35,11 @@ export function SessionView() {
   const [pendingCwd, setPendingCwd] = useState('')
   const [pendingApproval, setPendingApproval] = useState<ApprovalPolicy>('on-request')
   const [showApiKeyPrompt, setShowApiKeyPrompt] = useState(false)
+  // Attachments and file mentions state
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [fileMentions, setFileMentions] = useState<FileMention[]>([])
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const [fileSearchResults, setFileSearchResults] = useState<FileMention[]>([])
   const [copyDialog, setCopyDialog] = useState<{ open: boolean; url: string }>({
     open: false,
     url: '',
@@ -115,6 +120,22 @@ export function SessionView() {
   const slashQuery = getSlashQuery(inputValue)
   const slashMatches = slashQuery !== null ? filterSlashCommands(slashQuery) : []
   const slashMenuOpen = slashQuery !== null && !slashInput?.rest && slashMatches.length > 0
+  
+  // @ mention detection
+  const getMentionQuery = (text: string): string | null => {
+    const cursorPos = text.length // Assume cursor at end
+    const beforeCursor = text.slice(0, cursorPos)
+    const atIndex = beforeCursor.lastIndexOf('@')
+    if (atIndex === -1) return null
+    // Check there's no space between @ and cursor
+    const afterAt = beforeCursor.slice(atIndex + 1)
+    if (afterAt.includes(' ') || afterAt.includes('\n')) return null
+    return afterAt
+  }
+  const mentionQuery = getMentionQuery(inputValue)
+  const mentionMenuOpen = mentionQuery !== null && !slashMenuOpen
+  const mentionMatches = mentionMenuOpen ? fileSearchResults : []
+  
   const modelOptions = models.map((model): SelectOption => ({
     value: model.id,
     label: model.displayName || model.model,
@@ -155,6 +176,57 @@ export function SessionView() {
       setSlashIndex(0)
     }
   }, [slashMenuOpen, slashQuery])
+
+  useEffect(() => {
+    if (mentionMenuOpen) {
+      setMentionIndex(0)
+    }
+  }, [mentionMenuOpen, mentionQuery])
+
+  useEffect(() => {
+    if (!mentionQuery || !account) {
+      setFileSearchResults([])
+      return
+    }
+    
+    let cancelled = false
+    const searchFiles = async () => {
+      try {
+        const result = await hubClient.request(account.id, 'command/exec', {
+          command: ['find', '.', '-type', 'f', '-name', `*${mentionQuery}*`, '-not', '-path', '*/node_modules/*', '-not', '-path', '*/.git/*'],
+          timeoutMs: 3000,
+          cwd: null,
+          sandboxPolicy: null,
+        }) as { stdout: string; stderr: string; exitCode: number }
+        
+        if (cancelled) return
+        
+        if (result.exitCode === 0 && result.stdout) {
+          const files = result.stdout
+            .split('\n')
+            .filter(Boolean)
+            .slice(0, 10)
+            .map((path) => ({
+              path: path.replace(/^\.\//, ''),
+              name: path.split('/').pop() || path,
+            }))
+          setFileSearchResults(files)
+        } else {
+          setFileSearchResults([])
+        }
+      } catch {
+        if (!cancelled) {
+          setFileSearchResults([])
+        }
+      }
+    }
+    
+    const debounce = setTimeout(searchFiles, 150)
+    return () => {
+      cancelled = true
+      clearTimeout(debounce)
+    }
+  }, [mentionQuery, account])
 
   useEffect(() => {
     return () => {
@@ -296,10 +368,16 @@ export function SessionView() {
       return
     }
 
+    let displayContent = text
+    if (fileMentions.length > 0) {
+      const mentionList = fileMentions.map(m => `@${m.path}`).join(' ')
+      displayContent = `${mentionList}\n\n${text}`
+    }
+
     addMessage(selectedThreadId, {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: text,
+      content: displayContent,
       kind: 'chat',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     })
@@ -307,9 +385,28 @@ export function SessionView() {
 
     try {
       updateThread(selectedThreadId, { status: 'active' })
+      
+      // Build input array with text, images, and file references
+      const input: Array<{ type: string; text?: string; url?: string; path?: string }> = []
+      
+      // Add file mentions as text references
+      if (fileMentions.length > 0) {
+        const mentionText = fileMentions.map(m => `@${m.path}`).join(' ')
+        input.push({ type: 'text', text: `${mentionText}\n\n${text}` })
+      } else {
+        input.push({ type: 'text', text })
+      }
+      
+      // Add image attachments
+      for (const attachment of attachments) {
+        if (attachment.type === 'image' && attachment.url) {
+          input.push({ type: 'image', url: attachment.url })
+        }
+      }
+      
       const params: {
         threadId: string
-        input: Array<{ type: string; text: string }>
+        input: Array<{ type: string; text?: string; url?: string; path?: string }>
         model?: string
         effort?: string
         summary?: ReasoningSummary
@@ -317,7 +414,7 @@ export function SessionView() {
         approvalPolicy?: ApprovalPolicy
       } = {
         threadId: selectedThreadId,
-        input: [{ type: 'text', text }],
+        input,
       }
       if (effectiveModel) {
         params.model = effectiveModel
@@ -334,6 +431,10 @@ export function SessionView() {
       if (selectedCwd) {
         params.cwd = selectedCwd
       }
+      
+      setAttachments([])
+      setFileMentions([])
+      
       await hubClient.request(selectedThread.accountId, 'turn/start', {
         ...params,
       })
@@ -738,9 +839,51 @@ export function SessionView() {
         return
       }
     }
+    
+    if (mentionMenuOpen && mentionMatches.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev + 1) % mentionMatches.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((prev) => (prev - 1 + mentionMatches.length) % mentionMatches.length)
+        return
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault()
+        const selected = mentionMatches[mentionIndex]
+        if (selected) {
+          handleMentionSelect(selected)
+        }
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        const atIndex = inputValue.lastIndexOf('@')
+        if (atIndex !== -1) {
+          setInputValue(inputValue.slice(0, atIndex))
+        }
+        return
+      }
+    }
+    
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void submitComposer()
+    }
+  }
+
+  const handleMentionSelect = (mention: FileMention) => {
+    // Add to file mentions list
+    if (!fileMentions.find(m => m.path === mention.path)) {
+      setFileMentions([...fileMentions, mention])
+    }
+    // Remove the @query from input
+    const atIndex = inputValue.lastIndexOf('@')
+    if (atIndex !== -1) {
+      setInputValue(inputValue.slice(0, atIndex))
     }
   }
 
@@ -1042,6 +1185,16 @@ export function SessionView() {
             setThreadWebSearch(selectedThreadId, !webSearchEnabled)
           }
         }}
+        attachments={attachments}
+        onAttachmentsChange={setAttachments}
+        fileMentions={fileMentions}
+        onFileMentionsChange={setFileMentions}
+        mentionMenuOpen={mentionMenuOpen}
+        mentionQuery={mentionQuery ?? ''}
+        mentionMatches={mentionMatches}
+        mentionIndex={mentionIndex}
+        onMentionSelect={handleMentionSelect}
+        onMentionHover={setMentionIndex}
       />
       <SessionDialogs
         showModelDialog={showModelDialog}

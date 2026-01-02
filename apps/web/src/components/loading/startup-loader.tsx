@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../store'
-import { STARTUP_FRAMES } from './startup-ascii'
-
-const FRAME_INTERVAL_MS = 120
+import { STARTUP_FRAMES, STARTUP_FRAME_TICK_MS } from './startup-ascii'
 
 export const StartupLoader = () => {
   const connectionStatus = useAppStore((state) => state.connectionStatus)
@@ -16,7 +14,7 @@ export const StartupLoader = () => {
     setFrameIndex(0)
     const intervalId = window.setInterval(() => {
       setFrameIndex((current) => (current + 1) % STARTUP_FRAMES.length)
-    }, FRAME_INTERVAL_MS)
+    }, STARTUP_FRAME_TICK_MS)
     return () => window.clearInterval(intervalId)
   }, [isLoading])
 

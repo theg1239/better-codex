@@ -7,6 +7,20 @@ export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | '
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none'
 export type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 
+export interface Attachment {
+  id: string
+  type: 'image' | 'file'
+  name: string
+  path?: string
+  url?: string
+  size?: number
+}
+
+export interface FileMention {
+  path: string
+  name: string
+}
+
 export interface RateLimitWindow {
   usedPercent: number
   windowMinutes: number | null

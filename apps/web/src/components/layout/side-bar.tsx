@@ -83,12 +83,8 @@ export function Sidebar() {
     <aside className="w-60 bg-bg-secondary border-r border-border flex flex-col h-full">
       <div className="p-3 border-b border-border">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-accent-green flex items-center justify-center">
-            <span className="text-black text-xs font-bold">C</span>
-          </div>
           <div>
-            <h1 className="text-sm font-semibold text-text-primary leading-none">Codex</h1>
-            <p className="text-[10px] text-text-muted mt-0.5">Session Hub</p>
+            <h1 className="text-sm font-semibold text-text-primary leading-none">better-codex</h1>
           </div>
         </div>
       </div>
