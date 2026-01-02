@@ -1,8 +1,7 @@
 {
   "name": "better-codex",
   "version": "0.1.0",
-  "description": "Consumer-friendly web launcher for Codex Hub (backend + UI).",
-  "license": "Apache-2.0",
+  "description": "Web launcher for Codex Hub",
   "bin": {
     "better-codex": "bin/better-codex.cjs"
   },
