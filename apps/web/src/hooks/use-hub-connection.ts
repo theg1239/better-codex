@@ -538,9 +538,6 @@ export const useHubConnection = () => {
           })
           if (threads) {
             setThreadsForAccount(profile.id, toThreads(profile.id, threads))
-            if (profile.id === profiles[0]?.id && threads.data?.length) {
-              setSelectedThreadId(threads.data[0].id)
-            }
           }
           if (threads?.data?.length) {
             try {
