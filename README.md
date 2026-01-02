@@ -13,7 +13,6 @@ better-codex is a Codex session hub: a web UI plus a local backend that supervis
 - `apps/web` React UI (Vite).
 - `scripts/` launcher scripts for local dev.
 - `bin/` CLI wrappers (`better-codex`).
-- `codex/` upstream Codex source (vendored, unchanged).
 
 ## Requirements
 - Bun: https://bun.sh
