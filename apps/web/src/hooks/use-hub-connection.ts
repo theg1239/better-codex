@@ -126,6 +126,7 @@ export const useHubConnection = () => {
           model: next.model,
           effort: next.effort ?? undefined,
           summary: next.summary ?? undefined,
+          cwd: next.cwd ?? undefined,
           approvalPolicy: next.approvalPolicy ?? undefined,
         })
       } catch (error) {

@@ -62,6 +62,7 @@ export interface QueuedMessage {
   model?: string
   effort?: ReasoningEffort | null
   summary?: ReasoningSummary | null
+  cwd?: string | null
   approvalPolicy?: ApprovalPolicy | null
   createdAt: number
 }

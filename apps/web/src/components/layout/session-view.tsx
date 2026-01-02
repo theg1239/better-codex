@@ -32,6 +32,7 @@ export function SessionView() {
   const [pendingModelId, setPendingModelId] = useState('')
   const [pendingEffort, setPendingEffort] = useState<ReasoningEffort | ''>('')
   const [pendingSummary, setPendingSummary] = useState<ReasoningSummary | ''>('')
+  const [pendingCwd, setPendingCwd] = useState('')
   const [pendingApproval, setPendingApproval] = useState<ApprovalPolicy>('on-request')
   const [showApiKeyPrompt, setShowApiKeyPrompt] = useState(false)
   const [copyDialog, setCopyDialog] = useState<{ open: boolean; url: string }>({
@@ -71,6 +72,8 @@ export function SessionView() {
     setThreadWebSearch,
     threadSummaries,
     setThreadSummary,
+    threadCwds,
+    setThreadCwd,
     setSelectedThreadId,
     setModelsForAccount,
     queuedMessages,
@@ -101,6 +104,7 @@ export function SessionView() {
   const effectiveEffort = selectedEffort ?? defaultEffort ?? null
   const selectedApproval = selectedThreadId ? threadApprovals[selectedThreadId] : undefined
   const selectedSummary = selectedThreadId ? threadSummaries[selectedThreadId] : undefined
+  const selectedCwd = selectedThreadId ? threadCwds[selectedThreadId] : undefined
   const webSearchEnabled = selectedThreadId ? threadWebSearch[selectedThreadId] ?? false : false
   const isAccountReady = account?.status === 'online'
   const isAuthPending = account?.status === 'degraded'
@@ -165,8 +169,9 @@ export function SessionView() {
       setPendingModelId(effectiveModel)
       setPendingEffort((effectiveEffort ?? '') as ReasoningEffort | '')
       setPendingSummary((selectedSummary ?? 'auto') as ReasoningSummary)
+      setPendingCwd(selectedCwd ?? '')
     }
-  }, [showModelDialog, effectiveModel, effectiveEffort, selectedSummary])
+  }, [showModelDialog, effectiveModel, effectiveEffort, selectedSummary, selectedCwd])
 
   useEffect(() => {
     if (!showModelDialog) {
@@ -283,6 +288,7 @@ export function SessionView() {
         model: effectiveModel || undefined,
         effort: effectiveEffort ?? null,
         summary: selectedSummary ?? null,
+        cwd: selectedCwd ?? null,
         approvalPolicy: selectedApproval ?? null,
         createdAt: Date.now(),
       })
@@ -307,6 +313,7 @@ export function SessionView() {
         model?: string
         effort?: string
         summary?: ReasoningSummary
+        cwd?: string
         approvalPolicy?: ApprovalPolicy
       } = {
         threadId: selectedThreadId,
@@ -323,6 +330,9 @@ export function SessionView() {
       }
       if (selectedSummary) {
         params.summary = selectedSummary
+      }
+      if (selectedCwd) {
+        params.cwd = selectedCwd
       }
       await hubClient.request(selectedThread.accountId, 'turn/start', {
         ...params,
@@ -394,6 +404,9 @@ export function SessionView() {
     if (selectedSummary) {
       setThreadSummary(threadId, selectedSummary)
     }
+    if (selectedCwd) {
+      setThreadCwd(threadId, selectedCwd)
+    }
     const normalizedApproval = normalizeApprovalPolicy(result.approvalPolicy ?? null)
     const approval = normalizedApproval ?? approvalOverride ?? null
     if (approval) {
@@ -450,6 +463,7 @@ export function SessionView() {
       `Model: ${effectiveModel || 'default'}`,
       `Reasoning effort: ${effectiveEffort ?? 'default'}`,
       `Reasoning summary: ${selectedSummary ?? 'default'}`,
+      `Working directory: ${selectedCwd || 'default'}`,
       `Approvals: ${selectedApproval ?? 'default'}`,
       `Connection: ${connectionStatus}`,
     ]
@@ -567,6 +581,21 @@ export function SessionView() {
           if (summary && selectedThreadId) {
             setThreadSummary(selectedThreadId, summary)
             addSystemMessage('tool', '/summary', `Reasoning summary set to ${summary}.`)
+            return
+          }
+          setShowModelDialog(true)
+          return
+        }
+        case 'cwd': {
+          const target = rest.trim()
+          if (selectedThreadId && target) {
+            if (target === 'clear' || target === 'reset') {
+              setThreadCwd(selectedThreadId, '')
+              addSystemMessage('tool', '/cwd', 'Working directory cleared.')
+              return
+            }
+            setThreadCwd(selectedThreadId, target)
+            addSystemMessage('tool', '/cwd', `Working directory set to ${target}.`)
             return
           }
           setShowModelDialog(true)
@@ -863,6 +892,11 @@ export function SessionView() {
     if (pendingSummary) {
       setThreadSummary(selectedThreadId, pendingSummary as ReasoningSummary)
     }
+    if (pendingCwd.trim()) {
+      setThreadCwd(selectedThreadId, pendingCwd.trim())
+    } else {
+      setThreadCwd(selectedThreadId, '')
+    }
     setShowModelDialog(false)
   }
 
@@ -1021,6 +1055,8 @@ export function SessionView() {
         summaryOptions={summaryOptions}
         pendingSummary={pendingSummary}
         setPendingSummary={setPendingSummary}
+        pendingCwd={pendingCwd}
+        setPendingCwd={setPendingCwd}
         onApplyModel={applyModelDialog}
         showApprovalsDialog={showApprovalsDialog}
         onCloseApprovalsDialog={() => setShowApprovalsDialog(false)}

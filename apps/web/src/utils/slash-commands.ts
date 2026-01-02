@@ -1,6 +1,7 @@
 export type SlashCommandId =
   | 'model'
   | 'summary'
+  | 'cwd'
   | 'approvals'
   | 'skills'
   | 'review'
@@ -27,6 +28,7 @@ export type SlashCommandDefinition = {
 export const SLASH_COMMANDS: SlashCommandDefinition[] = [
   { id: 'model', description: 'choose what model and reasoning effort to use', availableDuringTask: false },
   { id: 'summary', description: 'set reasoning summary length', availableDuringTask: false },
+  { id: 'cwd', description: 'set working directory for the thread', availableDuringTask: false },
   { id: 'approvals', description: 'choose what Codex can do without approval', availableDuringTask: false },
   { id: 'skills', description: 'browse and insert skills', availableDuringTask: true },
   { id: 'review', description: 'review my current changes and find issues', availableDuringTask: false },

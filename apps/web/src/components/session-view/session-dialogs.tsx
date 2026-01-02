@@ -13,6 +13,8 @@ interface SessionDialogsProps {
   summaryOptions: SelectOption[]
   pendingSummary: ReasoningSummary | ''
   setPendingSummary: (value: ReasoningSummary | '') => void
+  pendingCwd: string
+  setPendingCwd: (value: string) => void
   onApplyModel: () => void
   showApprovalsDialog: boolean
   onCloseApprovalsDialog: () => void
@@ -60,6 +62,8 @@ export const SessionDialogs = ({
   summaryOptions,
   pendingSummary,
   setPendingSummary,
+  pendingCwd,
+  setPendingCwd,
   onApplyModel,
   showApprovalsDialog,
   onCloseApprovalsDialog,
@@ -118,6 +122,17 @@ export const SessionDialogs = ({
             onChange={(value) => setPendingSummary(value as ReasoningSummary)}
             placeholder="Summary"
           />
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">
+              Working directory
+            </div>
+            <input
+              value={pendingCwd}
+              onChange={(event) => setPendingCwd(event.target.value)}
+              placeholder="/path/to/repo"
+              className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+            />
+          </div>
         </div>
         <div className="flex justify-end gap-2 mt-4">
           <Button variant="ghost" size="sm" onClick={onCloseModelDialog}>

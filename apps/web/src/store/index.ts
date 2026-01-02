@@ -12,6 +12,7 @@ interface AppState {
   threadModels: Record<string, string>
   threadEfforts: Record<string, ReasoningEffort>
   threadSummaries: Record<string, ReasoningSummary>
+  threadCwds: Record<string, string>
   threadApprovals: Record<string, ApprovalPolicy>
   threadWebSearch: Record<string, boolean>
   threadTurnIds: Record<string, string>
@@ -40,6 +41,7 @@ interface AppState {
   setThreadModel: (threadId: string, modelId: string) => void
   setThreadEffort: (threadId: string, effort: ReasoningEffort) => void
   setThreadSummary: (threadId: string, summary: ReasoningSummary) => void
+  setThreadCwd: (threadId: string, cwd: string) => void
   setThreadApproval: (threadId: string, approval: ApprovalPolicy) => void
   setThreadWebSearch: (threadId: string, enabled: boolean) => void
   setThreadTurnId: (threadId: string, turnId: string | null) => void
@@ -73,6 +75,7 @@ export const useAppStore = create<AppState>((set) => ({
   threadModels: {},
   threadEfforts: {},
   threadSummaries: {},
+  threadCwds: {},
   threadApprovals: {},
   threadWebSearch: {},
   threadTurnIds: {},
@@ -103,6 +106,9 @@ export const useAppStore = create<AppState>((set) => ({
     const threadSummaries = Object.fromEntries(
       Object.entries(state.threadSummaries).filter(([threadId]) => remainingThreadIds.has(threadId))
     )
+    const threadCwds = Object.fromEntries(
+      Object.entries(state.threadCwds).filter(([threadId]) => remainingThreadIds.has(threadId))
+    )
     const threadApprovals = Object.fromEntries(
       Object.entries(state.threadApprovals).filter(([threadId]) => remainingThreadIds.has(threadId))
     )
@@ -122,6 +128,7 @@ export const useAppStore = create<AppState>((set) => ({
       threadModels,
       threadEfforts,
       threadSummaries,
+      threadCwds,
       threadApprovals,
       modelsByAccount,
       approvals: state.approvals.filter((approval) => approval.profileId !== id),
@@ -152,6 +159,9 @@ export const useAppStore = create<AppState>((set) => ({
     ),
     threadSummaries: Object.fromEntries(
       Object.entries(state.threadSummaries).filter(([threadId]) => threadId !== id)
+    ),
+    threadCwds: Object.fromEntries(
+      Object.entries(state.threadCwds).filter(([threadId]) => threadId !== id)
     ),
   })),
   updateThread: (id, updates) => set((state) => {
@@ -199,6 +209,12 @@ export const useAppStore = create<AppState>((set) => ({
     threadSummaries: {
       ...state.threadSummaries,
       [threadId]: summary,
+    },
+  })),
+  setThreadCwd: (threadId, cwd) => set((state) => ({
+    threadCwds: {
+      ...state.threadCwds,
+      [threadId]: cwd,
     },
   })),
   setThreadApproval: (threadId, approval) => set((state) => ({

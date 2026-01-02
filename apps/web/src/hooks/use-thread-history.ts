@@ -10,6 +10,7 @@ type ThreadResumeResult = {
   model?: string
   reasoningEffort?: ReasoningEffort | null
   approvalPolicy?: string | null
+  cwd?: string | null
 }
 
 type ThreadData = {
@@ -119,6 +120,7 @@ export const useThreadHistory = () => {
     setThreadModel,
     setThreadEffort,
     setThreadApproval,
+    setThreadCwd,
   } = useAppStore()
 
   const inFlight = useRef<Set<string>>(new Set())
@@ -178,6 +180,9 @@ export const useThreadHistory = () => {
         const approvalPolicy = normalizeApprovalPolicy(result.approvalPolicy)
         if (approvalPolicy) {
           setThreadApproval(selectedThreadId, approvalPolicy)
+        }
+        if (result.cwd) {
+          setThreadCwd(selectedThreadId, result.cwd)
         }
       } catch (error) {
         console.error(error)
