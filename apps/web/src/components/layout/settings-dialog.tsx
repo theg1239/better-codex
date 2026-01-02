@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Dialog, Button, Icons } from '../ui'
+import { CodexSettings } from './codex-settings'
 
 interface SettingsDialogProps {
   open: boolean
   onClose: () => void
 }
 
-type SettingsTab = 'general' | 'accounts' | 'appearance' | 'shortcuts'
+type SettingsTab = 'general' | 'accounts' | 'codex' | 'appearance' | 'shortcuts'
 
 export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
@@ -28,6 +29,12 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
               label="Accounts"
               active={activeTab === 'accounts'}
               onClick={() => setActiveTab('accounts')}
+            />
+            <SettingsNavItem
+              icon={<Icons.Terminal className="w-4 h-4" />}
+              label="Codex"
+              active={activeTab === 'codex'}
+              onClick={() => setActiveTab('codex')}
             />
             <SettingsNavItem
               icon={<Icons.Bolt className="w-4 h-4" />}
@@ -52,6 +59,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
         <div className="flex-1 overflow-y-auto">
           {activeTab === 'general' && <GeneralSettings />}
           {activeTab === 'accounts' && <AccountsSettings />}
+          {activeTab === 'codex' && <CodexSettings />}
           {activeTab === 'appearance' && <AppearanceSettings />}
           {activeTab === 'shortcuts' && <ShortcutsSettings />}
         </div>

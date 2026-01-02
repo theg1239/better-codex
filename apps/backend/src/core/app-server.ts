@@ -31,12 +31,18 @@ export class CodexAppServer extends EventEmitter {
   private connection?: JsonRpcConnection
   private ready: Promise<void>
   private resolveReady?: () => void
+  private readonly startupTimeoutMs: number
+  private readonly startupStderr: string[] = []
+  private readonly maxStartupStderr = 20
+  private startupComplete = false
 
   constructor(private readonly options: CodexAppServerOptions) {
     super()
     this.ready = new Promise((resolve) => {
       this.resolveReady = resolve
     })
+    const parsed = Number(process.env.CODEX_HUB_APP_SERVER_STARTUP_TIMEOUT_MS ?? 15000)
+    this.startupTimeoutMs = Number.isFinite(parsed) ? Math.max(parsed, 0) : 15000
   }
 
   async start(): Promise<void> {
@@ -73,6 +79,12 @@ export class CodexAppServer extends EventEmitter {
       this.emit('serverRequest', message)
     })
     this.connection.on('stderr', (message) => {
+      if (!this.startupComplete) {
+        this.startupStderr.push(message)
+        if (this.startupStderr.length > this.maxStartupStderr) {
+          this.startupStderr.shift()
+        }
+      }
       this.emit('stderr', message)
     })
     this.connection.on('error', (error) => {
@@ -82,8 +94,17 @@ export class CodexAppServer extends EventEmitter {
       this.emit('exit', code)
     })
 
-    await this.initialize()
-    this.resolveReady?.()
+    try {
+      await this.initializeWithTimeout()
+      this.startupComplete = true
+      this.resolveReady?.()
+    } catch (error) {
+      this.process?.kill()
+      this.process = undefined
+      this.connection = undefined
+      this.emit('error', error instanceof Error ? error : new Error(String(error)))
+      throw error
+    }
   }
 
   async request(method: string, params?: unknown): Promise<unknown> {
@@ -125,6 +146,51 @@ export class CodexAppServer extends EventEmitter {
       clientInfo: this.options.clientInfo,
     })
     this.connection.sendNotification('initialized', {})
+  }
+
+  private async initializeWithTimeout(): Promise<void> {
+    if (this.startupTimeoutMs <= 0) {
+      await this.initialize()
+      return
+    }
+    if (!this.process) {
+      throw new Error('missing app-server process')
+    }
+    let timeoutId: NodeJS.Timeout | null = null
+    const cleanup: Array<() => void> = []
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`app-server startup timed out after ${this.startupTimeoutMs}ms`))
+      }, this.startupTimeoutMs)
+    })
+    const exitPromise = new Promise<never>((_, reject) => {
+      const onExit = (code: number | null) => {
+        reject(new Error(`app-server exited before initialize${code !== null ? ` (code ${code})` : ''}`))
+      }
+      this.process?.once('exit', onExit)
+      cleanup.push(() => this.process?.removeListener('exit', onExit))
+    })
+    const errorPromise = new Promise<never>((_, reject) => {
+      const onError = (error: Error) => reject(error)
+      this.process?.once('error', onError)
+      cleanup.push(() => this.process?.removeListener('error', onError))
+    })
+    try {
+      await Promise.race([this.initialize(), timeoutPromise, exitPromise, errorPromise])
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('startup timed out')) {
+        const stderr = this.startupStderr.join('\n')
+        if (stderr) {
+          throw new Error(`${error.message}\n\n${stderr}`)
+        }
+      }
+      throw error
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      cleanup.forEach((fn) => fn())
+    }
   }
 }
 

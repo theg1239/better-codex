@@ -24,6 +24,7 @@ type ThreadData = {
 type TurnData = {
   id: string
   items?: ThreadItem[]
+  status?: string
 }
 
 type ThreadItem = {
@@ -109,6 +110,72 @@ const buildMessagesFromTurns = (turns: TurnData[] = []): Message[] => {
   return messages
 }
 
+const mergeMessages = (base: Message[], incoming: Message[]): Message[] => {
+  if (incoming.length === 0) {
+    return base
+  }
+  if (base.length === 0) {
+    return incoming
+  }
+  const merged = [...base]
+  const indexById = new Map(base.map((msg, index) => [msg.id, index]))
+  const userContentIndex = new Map<string, number[]>()
+
+  const contentKey = (message: Message) => message.content.trim()
+  const isUserChat = (message: Message) => message.role === 'user' && message.kind === 'chat'
+
+  base.forEach((message, index) => {
+    if (!isUserChat(message) || message.timestamp) {
+      return
+    }
+    const key = contentKey(message)
+    if (!key) {
+      return
+    }
+    const existing = userContentIndex.get(key)
+    if (existing) {
+      existing.push(index)
+    } else {
+      userContentIndex.set(key, [index])
+    }
+  })
+
+  for (const message of incoming) {
+    const existingIndex = indexById.get(message.id)
+    if (existingIndex === undefined) {
+      if (isUserChat(message)) {
+        const key = contentKey(message)
+        const candidates = key ? userContentIndex.get(key) : undefined
+        const targetIndex = candidates?.shift()
+        if (targetIndex !== undefined) {
+          const target = merged[targetIndex]
+          merged[targetIndex] = {
+            ...target,
+            ...message,
+            id: target.id,
+            timestamp: message.timestamp || target.timestamp,
+          }
+          if (candidates && candidates.length === 0) {
+            userContentIndex.delete(key)
+          }
+          continue
+        }
+      }
+      merged.push(message)
+    } else {
+      merged[existingIndex] = { ...merged[existingIndex], ...message }
+    }
+  }
+  return merged
+}
+
+const isTurnInProgress = (status?: string) => {
+  if (!status) {
+    return false
+  }
+  return status === 'inProgress' || status === 'in_progress' || status === 'inprogress'
+}
+
 export const useThreadHistory = () => {
   const {
     threads,
@@ -121,9 +188,11 @@ export const useThreadHistory = () => {
     setThreadEffort,
     setThreadApproval,
     setThreadCwd,
+    setThreadTurnId,
   } = useAppStore()
 
   const inFlight = useRef<Set<string>>(new Set())
+  const loaded = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (!selectedThreadId || connectionStatus !== 'connected') {
@@ -135,8 +204,7 @@ export const useThreadHistory = () => {
       return
     }
 
-    const existing = messages[selectedThreadId]
-    if (existing !== undefined) {
+    if (loaded.current.has(selectedThreadId)) {
       return
     }
 
@@ -162,14 +230,32 @@ export const useThreadHistory = () => {
           return
         }
 
-        const loadedMessages = buildMessagesFromTurns(resumeThread.turns)
-        setMessagesForThread(selectedThreadId, loadedMessages)
+        const turns = resumeThread.turns ?? []
+        const loadedMessages = buildMessagesFromTurns(turns)
+        const currentMessages = useAppStore.getState().messages[selectedThreadId] ?? []
+        const mergedMessages = mergeMessages(loadedMessages, currentMessages)
+        setMessagesForThread(selectedThreadId, mergedMessages)
+
+        let activeTurn: TurnData | null = null
+        for (let index = turns.length - 1; index >= 0; index -= 1) {
+          if (isTurnInProgress(turns[index]?.status)) {
+            activeTurn = turns[index]
+            break
+          }
+        }
+        setThreadTurnId(selectedThreadId, activeTurn?.id ?? null)
+        const nextStatus = thread.status === 'archived'
+          ? 'archived'
+          : activeTurn
+            ? 'active'
+            : 'idle'
 
         updateThread(selectedThreadId, {
           title: resumeThread.preview?.trim() || thread.title,
           preview: resumeThread.preview?.trim() || thread.preview,
           model: resumeThread.modelProvider ?? thread.model,
-          messageCount: loadedMessages.length,
+          messageCount: mergedMessages.length,
+          status: nextStatus,
         })
         if (result.model) {
           setThreadModel(selectedThreadId, result.model)
@@ -184,6 +270,7 @@ export const useThreadHistory = () => {
         if (result.cwd) {
           setThreadCwd(selectedThreadId, result.cwd)
         }
+        loaded.current.add(selectedThreadId)
       } catch (error) {
         console.error(error)
       } finally {
@@ -206,5 +293,7 @@ export const useThreadHistory = () => {
     setThreadApproval,
     threads,
     updateThread,
+    setThreadTurnId,
+    setThreadCwd,
   ])
 }

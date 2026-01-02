@@ -12,6 +12,32 @@ export type PromptSummary = {
   description?: string
 }
 
+export type McpServerConfig = {
+  name: string
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  env_vars?: string[]
+  cwd?: string
+  url?: string
+  bearer_token_env_var?: string
+  http_headers?: Record<string, string>
+  env_http_headers?: Record<string, string>
+  enabled?: boolean
+  startup_timeout_sec?: number
+  startup_timeout_ms?: number
+  tool_timeout_sec?: number
+  enabled_tools?: string[]
+  disabled_tools?: string[]
+}
+
+export type ProfileConfigSnapshot = {
+  path: string
+  codexHome: string
+  content: string
+  mcpServers: McpServerConfig[]
+}
+
 export type ThreadSearchResult = {
   threadId: string
   profileId: string
@@ -25,6 +51,13 @@ export type ThreadSearchResult = {
   status: 'active' | 'archived'
   archivedAt: number | null
   lastSeenAt: number | null
+}
+
+export type ActiveThread = {
+  threadId: string
+  profileId: string
+  turnId: string | null
+  startedAt: number
 }
 
 export type ReviewSessionResult = {
@@ -234,6 +267,40 @@ class HubClient {
     return data.content ?? ''
   }
 
+  async getProfileConfig(profileId: string): Promise<ProfileConfigSnapshot> {
+    const response = await fetch(`${HUB_URL}/profiles/${profileId}/config`)
+    if (!response.ok) {
+      throw new Error('Failed to load config')
+    }
+    return (await response.json()) as ProfileConfigSnapshot
+  }
+
+  async saveProfileConfig(profileId: string, content: string): Promise<ProfileConfigSnapshot> {
+    const response = await fetch(`${HUB_URL}/profiles/${profileId}/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to save config')
+    }
+    const data = (await response.json()) as { content?: string } & ProfileConfigSnapshot
+    return data
+  }
+
+  async saveMcpServers(profileId: string, servers: McpServerConfig[]): Promise<ProfileConfigSnapshot> {
+    const response = await fetch(`${HUB_URL}/profiles/${profileId}/mcp-servers`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ servers }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to save MCP servers')
+    }
+    const data = (await response.json()) as ProfileConfigSnapshot
+    return data
+  }
+
   async searchThreads(params: {
     query?: string
     profileId?: string
@@ -261,6 +328,17 @@ class HubClient {
     return data.threads ?? []
   }
 
+  async listActiveThreads(params?: { profileId?: string }): Promise<ActiveThread[]> {
+    const url = new URL('/threads/active', HUB_URL)
+    if (params?.profileId) url.searchParams.set('profileId', params.profileId)
+    const response = await fetch(url.toString())
+    if (!response.ok) {
+      throw new Error('Failed to load active threads')
+    }
+    const data = (await response.json()) as { threads?: ActiveThread[] }
+    return data.threads ?? []
+  }
+
   async listReviews(params?: { profileId?: string; limit?: number; offset?: number }): Promise<ReviewSessionResult[]> {
     const url = new URL('/reviews', HUB_URL)
     if (params?.profileId) url.searchParams.set('profileId', params.profileId)
@@ -274,7 +352,7 @@ class HubClient {
     return data.sessions ?? []
   }
 
-  async request(profileId: string, method: string, params?: unknown): Promise<unknown> {
+  private async sendRequest(profileId: string, method: string, params?: unknown): Promise<unknown> {
     if (!this.ws) {
       console.error('[HubClient] WebSocket not connected')
       throw new Error('WebSocket not connected')
@@ -304,6 +382,18 @@ class HubClient {
         },
       })
     })
+  }
+
+  async request(profileId: string, method: string, params?: unknown): Promise<unknown> {
+    try {
+      return await this.sendRequest(profileId, method, params)
+    } catch (error) {
+      if (this.isProfileNotRunning(error)) {
+        await this.startProfile(profileId)
+        return await this.sendRequest(profileId, method, params)
+      }
+      throw error
+    }
   }
 
   respond(profileId: string, id: number, result?: unknown, error?: { code?: number; message: string }) {
@@ -353,6 +443,13 @@ class HubClient {
     }
 
     this.listeners.forEach((listener) => listener(payload as WsEvent))
+  }
+
+  private isProfileNotRunning(error: unknown): boolean {
+    if (!error || typeof error !== 'object') {
+      return false
+    }
+    return error instanceof Error && error.message.includes('profile app-server not running')
   }
 }
 

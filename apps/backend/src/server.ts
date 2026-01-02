@@ -5,10 +5,12 @@ import { join, extname, basename } from 'node:path'
 import { loadConfig } from './config'
 import { CodexSupervisor } from './services/supervisor'
 import { ProfileStore } from './services/profile-store'
+import { readProfileConfig, updateProfileMcpServers, writeProfileConfig, type McpServerConfig } from './services/codex-config'
 import { AnalyticsStore } from './analytics/store'
 import { AnalyticsService } from './analytics/service'
 import { ThreadIndexStore } from './thread-index/store'
 import { ThreadIndexService, type ThreadListItem } from './thread-index/service'
+import { ThreadActivityService } from './thread-activity/service'
 import { ReviewService } from './reviews/service'
 import { ReviewStore } from './reviews/store'
 import type { WsEvent, WsRequest, WsResponse } from './ws/messages'
@@ -24,6 +26,7 @@ const analytics = new AnalyticsService(new AnalyticsStore(join(config.dataDir, '
 analytics.init()
 const threadIndex = new ThreadIndexService(new ThreadIndexStore(join(config.dataDir, 'threads.sqlite')))
 threadIndex.init()
+const threadActivity = new ThreadActivityService()
 const reviews = new ReviewService(new ReviewStore(join(config.dataDir, 'reviews.sqlite')))
 reviews.init()
 
@@ -36,8 +39,25 @@ const sendWsEvent = (event: WsEvent) => {
   clients.forEach((client) => client.send(payload))
 }
 
+const shouldLogRouteErrors =
+  process.env.CODEX_HUB_DEBUG_ROUTES === '1' || process.env.NODE_ENV !== 'production'
+
+const formatError = (error: unknown) => {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`
+  }
+  return String(error)
+}
+
 const app = new Elysia()
   .use(cors({ origin: true }))
+  .onError(({ code, error, request }) => {
+    if (!shouldLogRouteErrors || code === 'NOT_FOUND') {
+      return
+    }
+    console.error(`[HubBackend] ${request.method} ${request.url} -> ${code}`)
+    console.error(formatError(error))
+  })
   .get('/health', () => ({ ok: true }))
   .get('/config', () => ({ token: config.authToken }))
   .get(
@@ -216,6 +236,89 @@ const app = new Elysia()
     }
   )
   .get(
+    '/profiles/:profileId/config',
+    async ({ params }) => {
+      const profile = profileStore.get(params.profileId)
+      if (!profile) {
+        return new Response('Profile not found', { status: 404 })
+      }
+      const snapshot = await readProfileConfig(profile.codexHome)
+      return {
+        path: snapshot.path,
+        codexHome: profile.codexHome,
+        content: snapshot.content,
+        mcpServers: snapshot.mcpServers,
+      }
+    },
+    {
+      params: t.Object({
+        profileId: t.String(),
+      }),
+    }
+  )
+  .put(
+    '/profiles/:profileId/config',
+    async ({ params, body }) => {
+      const profile = profileStore.get(params.profileId)
+      if (!profile) {
+        return new Response('Profile not found', { status: 404 })
+      }
+      if (!body || typeof body !== 'object' || typeof (body as { content?: string }).content !== 'string') {
+        return new Response('Invalid config payload', { status: 400 })
+      }
+      const snapshot = await writeProfileConfig(profile.codexHome, (body as { content: string }).content)
+      return {
+        ok: true,
+        path: snapshot.path,
+        codexHome: profile.codexHome,
+        content: snapshot.content,
+        mcpServers: snapshot.mcpServers,
+      }
+    },
+    {
+      params: t.Object({
+        profileId: t.String(),
+      }),
+      body: t.Object({
+        content: t.String(),
+      }),
+    }
+  )
+  .put(
+    '/profiles/:profileId/mcp-servers',
+    async ({ params, body }) => {
+      const profile = profileStore.get(params.profileId)
+      if (!profile) {
+        return new Response('Profile not found', { status: 404 })
+      }
+      if (!body || typeof body !== 'object' || !Array.isArray((body as { servers?: McpServerConfig[] }).servers)) {
+        return new Response('Invalid MCP server payload', { status: 400 })
+      }
+      const servers = (body as { servers: McpServerConfig[] }).servers
+      for (const server of servers) {
+        if (!server?.name || !/^[a-zA-Z0-9._-]+$/.test(server.name)) {
+          return new Response('Invalid MCP server name', { status: 400 })
+        }
+      }
+      const snapshot = await updateProfileMcpServers(profile.codexHome, servers)
+      return {
+        ok: true,
+        path: snapshot.path,
+        codexHome: profile.codexHome,
+        content: snapshot.content,
+        mcpServers: snapshot.mcpServers,
+      }
+    },
+    {
+      params: t.Object({
+        profileId: t.String(),
+      }),
+      body: t.Object({
+        servers: t.Array(t.Any()),
+      }),
+    }
+  )
+  .get(
     '/threads/search',
     ({ query }) => {
       const q = typeof query.q === 'string' ? query.q : undefined
@@ -248,6 +351,18 @@ const app = new Elysia()
         createdBefore: t.Optional(t.String()),
         limit: t.Optional(t.String()),
         offset: t.Optional(t.String()),
+      }),
+    }
+  )
+  .get(
+    '/threads/active',
+    ({ query }) => {
+      const profileId = typeof query.profileId === 'string' ? query.profileId : undefined
+      return { threads: threadActivity.list(profileId) }
+    },
+    {
+      query: t.Object({
+        profileId: t.Optional(t.String()),
       }),
     }
   )
@@ -351,6 +466,7 @@ const app = new Elysia()
 
       if (payload.type === 'profile.stop') {
         await supervisor.stop(payload.profileId)
+        threadActivity.clearProfile(payload.profileId)
         const response: WsResponse = {
           type: 'profile.stopped',
           profileId: payload.profileId,
@@ -380,13 +496,30 @@ const app = new Elysia()
             threadIndex.recordThreadStart(payload.profileId, thread)
           }
           if (payload.method === 'thread/resume') {
-            const thread = (result as { thread?: ThreadListItem }).thread
+            const thread = (result as { thread?: ThreadListItem & { turns?: Array<{ id?: string; status?: string }> } }).thread
             threadIndex.recordThreadResume(payload.profileId, thread)
+            if (thread?.id) {
+              let activeTurnId: string | null = null
+              if (Array.isArray(thread.turns)) {
+                for (let index = thread.turns.length - 1; index >= 0; index -= 1) {
+                  if (thread.turns[index]?.status === 'inProgress') {
+                    activeTurnId = thread.turns[index]?.id ?? null
+                    break
+                  }
+                }
+              }
+              if (activeTurnId) {
+                threadActivity.markStarted(payload.profileId, thread.id, activeTurnId)
+              } else {
+                threadActivity.markCompleted(payload.profileId, thread.id)
+              }
+            }
           }
           if (payload.method === 'thread/archive') {
             const params = payload.params as { threadId?: string } | undefined
             if (params?.threadId) {
               threadIndex.recordThreadArchive(payload.profileId, params.threadId)
+              threadActivity.markCompleted(payload.profileId, params.threadId)
             }
           }
           analytics.trackRpcResponse({
@@ -424,6 +557,18 @@ const app = new Elysia()
   })
 
 supervisor.on('notification', (event) => {
+  if (event.method === 'turn/started' && event.params && typeof event.params === 'object') {
+    const { threadId, turn } = event.params as { threadId?: string; turn?: { id?: string } }
+    if (threadId) {
+      threadActivity.markStarted(event.profileId, threadId, turn?.id ?? null)
+    }
+  }
+  if (event.method === 'turn/completed' && event.params && typeof event.params === 'object') {
+    const { threadId } = event.params as { threadId?: string }
+    if (threadId) {
+      threadActivity.markCompleted(event.profileId, threadId)
+    }
+  }
   if (event.method === 'item/started' && event.params && typeof event.params === 'object') {
     const { threadId, turnId, item } = event.params as {
       threadId?: string
@@ -503,6 +648,7 @@ supervisor.on('diagnostic', (event) => {
 })
 
 supervisor.on('exit', (event) => {
+  threadActivity.clearProfile(event.profileId)
   const wsEvent: WsEvent = {
     type: 'profile.exit',
     profileId: event.profileId,
@@ -512,6 +658,10 @@ supervisor.on('exit', (event) => {
 })
 
 supervisor.on('error', (event) => {
+  if (shouldLogRouteErrors) {
+    console.error(`[HubBackend] profile ${event.profileId} error`)
+    console.error(formatError(event.error))
+  }
   const wsEvent: WsEvent = {
     type: 'profile.error',
     profileId: event.profileId,

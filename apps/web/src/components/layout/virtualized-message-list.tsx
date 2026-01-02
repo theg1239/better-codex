@@ -240,19 +240,19 @@ export function VirtualizedMessageList({
   const isTaskRunning = threadStatus === 'active'
   
   const turns = useMemo(() => groupMessagesIntoTurns(messages), [messages])
+  const activeTurnId = turns.length > 0 ? turns[turns.length - 1].id : null
+  const workingTurnId = isTaskRunning && !isWaitingForResponse && turnStartedAt ? activeTurnId : null
   
   const items: Array<
     | { type: 'turn'; data: Turn } 
     | { type: 'approval'; data: ApprovalRequest }
     | { type: 'thinking'; data: null }
-    | { type: 'working'; data: { startedAt: number } }
     | { type: 'worked'; data: { duration: number } }
     | { type: 'queued'; data: QueuedMessage }
   > = [
     ...turns.map(t => ({ type: 'turn' as const, data: t })),
     ...approvals.map(a => ({ type: 'approval' as const, data: a })),
     ...(isWaitingForResponse ? [{ type: 'thinking' as const, data: null }] : []),
-    ...(isTaskRunning && !isWaitingForResponse && turnStartedAt ? [{ type: 'working' as const, data: { startedAt: turnStartedAt } }] : []),
     ...(!isTaskRunning && lastTurnDuration ? [{ type: 'worked' as const, data: { duration: lastTurnDuration } }] : []),
     ...queuedMessages.map(q => ({ type: 'queued' as const, data: q })),
   ]
@@ -266,7 +266,6 @@ export function VirtualizedMessageList({
       const item = items[index]
       if (item.type === 'approval') return 140
       if (item.type === 'thinking') return 60
-      if (item.type === 'working') return 60
       if (item.type === 'worked') return 40
       if (item.type === 'queued') return 80
       const turn = item.data as Turn
@@ -278,7 +277,8 @@ export function VirtualizedMessageList({
         }
         return acc + 44
       }, 0)
-      return userHeight + actionsHeight + 16
+      const workingHeight = workingTurnId && turn.id === workingTurnId ? 60 : 0
+      return userHeight + actionsHeight + workingHeight + 16
     },
     overscan: 3,
   })
@@ -367,11 +367,14 @@ export function VirtualizedMessageList({
                 data-index={virtualItem.index}
               >
                 {item.type === 'turn' ? (
-                  <TurnView turn={item.data} />
+                  <TurnView 
+                    turn={item.data} 
+                    showWorking={workingTurnId === item.data.id}
+                    workingStartedAt={workingTurnId ? turnStartedAt : undefined}
+                    onInterrupt={workingTurnId === item.data.id && isTaskRunning ? onInterrupt : undefined}
+                  />
                 ) : item.type === 'thinking' ? (
                   <ThinkingBubble onInterrupt={isTaskRunning ? onInterrupt : undefined} />
-                ) : item.type === 'working' ? (
-                  <WorkingBubble startedAt={item.data.startedAt} onInterrupt={isTaskRunning ? onInterrupt : undefined} />
                 ) : item.type === 'worked' ? (
                   <WorkedBubble duration={item.data.duration} />
                 ) : item.type === 'queued' ? (
@@ -492,11 +495,25 @@ function QueuedMessageBubble({ message }: { message: QueuedMessage }) {
   )
 }
 
-function TurnView({ turn }: { turn: Turn }) {
+function TurnView({ 
+  turn, 
+  showWorking, 
+  workingStartedAt, 
+  onInterrupt 
+}: { 
+  turn: Turn
+  showWorking?: boolean
+  workingStartedAt?: number
+  onInterrupt?: () => void
+}) {
   return (
     <div className="space-y-2">
       {turn.userMessage && (
         <UserMessage message={turn.userMessage} />
+      )}
+      
+      {showWorking && workingStartedAt !== undefined && (
+        <WorkingBubble startedAt={workingStartedAt} onInterrupt={onInterrupt} />
       )}
       
       {turn.assistantActions.length > 0 && (
@@ -608,8 +625,7 @@ function ActionRow({ action }: { action: AssistantAction }) {
     
     if (isPlaceholder) {
       return (
-        <div className="flex items-center gap-2 py-1.5">
-          <span className="text-text-muted">•</span>
+        <div className="flex items-center gap-2 py-1.5 pl-2">
           <ThinkingIndicator message="Thinking" />
         </div>
       )

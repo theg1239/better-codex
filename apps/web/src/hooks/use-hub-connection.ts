@@ -541,6 +541,26 @@ export const useHubConnection = () => {
               setSelectedThreadId(threads.data[0].id)
             }
           }
+          if (threads?.data?.length) {
+            try {
+              const activeThreads = await hubClient.listActiveThreads({ profileId: profile.id })
+              const knownThreadIds = new Set(threads.data.map((thread) => thread.id))
+              for (const entry of activeThreads) {
+                if (!knownThreadIds.has(entry.threadId)) {
+                  continue
+                }
+                updateThread(entry.threadId, { status: 'active' })
+                if (entry.turnId) {
+                  setThreadTurnId(entry.threadId, entry.turnId)
+                }
+                if (Number.isFinite(entry.startedAt)) {
+                  setThreadTurnStartedAt(entry.threadId, entry.startedAt)
+                }
+              }
+            } catch (error) {
+              console.error(error)
+            }
+          }
 
           const models = await fetchAllModels(profile.id)
           if (models.length) {

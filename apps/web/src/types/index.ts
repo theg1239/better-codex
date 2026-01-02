@@ -8,6 +8,29 @@ export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none'
 export type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
 export type ReviewStatus = 'pending' | 'running' | 'completed' | 'failed'
 
+export type CommandAction =
+  | { type: 'read'; command: string; name: string; path: string }
+  | { type: 'listFiles'; command: string; path?: string | null }
+  | { type: 'search'; command: string; query?: string | null; path?: string | null }
+  | { type: 'unknown'; command: string }
+
+export type FileChangeKind = 'add' | 'delete' | 'update'
+
+export interface FileChangeMeta {
+  path: string
+  kind: FileChangeKind
+  diff?: string
+  movePath?: string | null
+}
+
+export interface MessageMeta {
+  commandActions?: CommandAction[]
+  command?: string
+  status?: string
+  fileChanges?: FileChangeMeta[]
+  diff?: string
+}
+
 export interface Attachment {
   id: string
   type: 'image' | 'file'
@@ -69,6 +92,7 @@ export interface Message {
   kind?: MessageKind
   title?: string
   timestamp: string
+  meta?: MessageMeta
 }
 
 export interface QueuedMessage {
