@@ -265,7 +265,8 @@ const runWeb = (options) => {
       CODEX_HUB_TOKEN: token,
       CODEX_HUB_DEFAULT_CWD: process.cwd(),
     },
-    stdio: 'ignore',
+    stdio: 'pipe',
+    detached: false,
   });
 
   const web = spawn(
@@ -278,9 +279,15 @@ const runWeb = (options) => {
         VITE_CODEX_HUB_URL: backendUrl,
         VITE_CODEX_HUB_TOKEN: token,
       },
-      stdio: 'ignore',
+      stdio: 'pipe',
+      detached: false,
     }
   );
+
+  backend.stdout?.resume();
+  backend.stderr?.resume();
+  web.stdout?.resume();
+  web.stderr?.resume();
 
   setTimeout(() => {
     console.log('');
