@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Icons } from './icons'
 import { MobileSheet } from './mobile-drawer'
@@ -32,32 +32,61 @@ export function Select({
   label,
 }: SelectProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0, direction: 'down' as 'down' | 'up', height: 200 })
   const buttonRef = useRef<HTMLButtonElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
 
   const selectedOption = options.find((opt) => opt.value === value)
 
+  const updateDropdownPosition = useCallback(() => {
+    if (!isOpen || !buttonRef.current || isMobile) return
+
+    const rect = buttonRef.current.getBoundingClientRect()
+    const estimatedHeight = Math.min(options.length * 36, 200)
+    const availableBelow = window.innerHeight - (rect.top + rect.height)
+    const availableAbove = rect.top
+    const openUp = availableBelow < estimatedHeight && availableAbove > availableBelow
+    const maxHeight = openUp
+      ? Math.max(0, Math.min(estimatedHeight, availableAbove - 8))
+      : Math.max(0, Math.min(estimatedHeight, availableBelow - 8))
+
+    setDropdownPosition({
+      top: openUp ? rect.top - maxHeight - 4 : rect.top + rect.height + 4,
+      left: rect.left,
+      width: rect.width,
+      direction: openUp ? 'up' : 'down',
+      height: maxHeight || estimatedHeight,
+    })
+  }, [isOpen, isMobile, options.length])
+
   useEffect(() => {
-    if (isOpen && buttonRef.current && !isMobile) {
-      const rect = buttonRef.current.getBoundingClientRect()
-      setDropdownPosition({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-      })
+    updateDropdownPosition()
+  }, [updateDropdownPosition])
+
+  useEffect(() => {
+    if (!isOpen || isMobile) return
+
+    const handleWindowChange = () => {
+      updateDropdownPosition()
     }
-  }, [isOpen, isMobile])
+
+    window.addEventListener('resize', handleWindowChange)
+    window.addEventListener('scroll', handleWindowChange, true)
+
+    return () => {
+      window.removeEventListener('resize', handleWindowChange)
+      window.removeEventListener('scroll', handleWindowChange, true)
+    }
+  }, [isOpen, isMobile, updateDropdownPosition])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (
-        containerRef.current && 
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setIsOpen(false)
-      }
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      if (dropdownRef.current?.contains(target)) return
+      setIsOpen(false)
     }
 
     if (isOpen) {
@@ -93,16 +122,18 @@ export function Select({
   }
 
   const DropdownContent = !isMobile && isOpen && (
-    <div 
+    <div
+      ref={dropdownRef}
       className="fixed bg-bg-secondary border border-border rounded-lg shadow-xl z-[9999] overflow-hidden"
       style={{
-        top: `${dropdownPosition.top + buttonRef.current!.offsetHeight + 4}px`,
+        top: `${dropdownPosition.top}px`,
         left: `${dropdownPosition.left}px`,
         minWidth: `${dropdownPosition.width}px`,
         maxWidth: '280px',
+        maxHeight: `${dropdownPosition.height}px`,
       }}
     >
-      <div className="max-h-[200px] overflow-y-auto py-1">
+      <div className="overflow-y-auto py-1" style={{ maxHeight: `${dropdownPosition.height}px` }}>
         {options.map((option) => (
           <button
             key={option.value}
