@@ -1,4 +1,4 @@
-import type { Message, MessageKind } from '../types'
+import type { CommandAction, FileChangeMeta, Message, MessageKind, MessageMeta } from '../types'
 
 type ThreadItem = {
   type: string
@@ -6,11 +6,11 @@ type ThreadItem = {
   [key: string]: unknown
 }
 
-type CommandAction =
-  | { type: 'read'; command: string; name: string; path: string }
-  | { type: 'listFiles'; command: string; path?: string | null }
-  | { type: 'search'; command: string; query?: string | null; path?: string | null }
-  | { type: 'unknown'; command: string }
+// type CommandAction =
+//   | { type: 'read'; command: string; name: string; path: string }
+//   | { type: 'listFiles'; command: string; path?: string | null }
+//   | { type: 'search'; command: string; query?: string | null; path?: string | null }
+//   | { type: 'unknown'; command: string }
 
 const clampText = (value: string, max = 1400) => {
   if (value.length <= max) {
@@ -99,7 +99,43 @@ const formatCommandActions = (actions: CommandAction[], commandFallback: string)
   }
 }
 
-export const formatThreadItem = (item: ThreadItem): { kind: MessageKind; content: string; title?: string } | null => {
+type FormattedThreadItem = {
+  kind: MessageKind
+  content: string
+  title?: string
+  meta?: MessageMeta
+}
+
+const toFileChangeMeta = (change: {
+  path?: unknown
+  kind?: unknown
+  diff?: string
+  movePath?: unknown
+  move_path?: unknown
+}): FileChangeMeta => {
+  const path = typeof change.path === 'string' ? change.path : 'unknown'
+  const kind =
+    typeof change.kind === 'string'
+      ? change.kind
+      : typeof (change.kind as { type?: string } | null | undefined)?.type === 'string'
+        ? String((change.kind as { type?: string }).type)
+        : 'update'
+  const movePath =
+    typeof change.movePath === 'string'
+      ? change.movePath
+      : typeof change.move_path === 'string'
+        ? change.move_path
+        : undefined
+
+  return {
+    path,
+    kind: kind === 'add' || kind === 'delete' ? kind : 'update',
+    diff: typeof change.diff === 'string' ? change.diff : undefined,
+    movePath: movePath ?? null,
+  }
+}
+
+export const formatThreadItem = (item: ThreadItem): FormattedThreadItem | null => {
   switch (item.type) {
     case 'reasoning': {
       const summary = Array.isArray(item.summary) ? item.summary.join('\n') : ''
@@ -113,13 +149,22 @@ export const formatThreadItem = (item: ThreadItem): { kind: MessageKind; content
       const actions = Array.isArray(item.commandActions) ? (item.commandActions as CommandAction[]) : []
       const actionSummary = formatCommandActions(actions, command)
       const content = output ? `${actionSummary.content}\n\n${output}` : actionSummary.content
-      return { kind: actionSummary.kind, content: clampText(content), title: `${actionSummary.title} · ${status}` }
+      const meta: MessageMeta = {
+        commandActions: actions.length ? actions : undefined,
+        command,
+        status,
+      }
+      return { kind: actionSummary.kind, content: clampText(content), title: actionSummary.title, meta }
     }
     case 'fileChange': {
       const changes = Array.isArray(item.changes) ? item.changes : []
       const content = formatFileChanges(changes as Array<{ path?: string; kind?: string; diff?: string; movePath?: string }>)
       const status = typeof item.status === 'string' ? item.status : 'inProgress'
-      return { kind: 'file', content, title: `Files · ${status}` }
+      const meta: MessageMeta = {
+        fileChanges: changes.length ? changes.map((change) => toFileChangeMeta(change as Record<string, unknown>)) : undefined,
+        status,
+      }
+      return { kind: 'file', content, title: 'Files', meta }
     }
     case 'mcpToolCall': {
       const server = typeof item.server === 'string' ? item.server : 'mcp'
@@ -166,5 +211,6 @@ export const buildSystemMessage = (item: ThreadItem): Message | null => {
     title: formatted.title,
     content: formatted.content,
     timestamp: '',
+    meta: formatted.meta,
   }
 }

@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { Message, ApprovalRequest, ThreadStatus, QueuedMessage } from '../../types'
-import { Avatar, Button, Icons, CollapsibleContent, ThinkingIndicator } from '../ui'
+import type { Message, ApprovalRequest, ThreadStatus, QueuedMessage, CommandAction, FileChangeMeta } from '../../types'
+import { Avatar, Button, Icons, CollapsibleContent, ThinkingIndicator, ShimmerText } from '../ui'
 import { Markdown } from '../ui'
 
 interface VirtualizedMessageListProps {
@@ -31,15 +31,348 @@ interface AssistantAction {
   summary?: string
 }
 
+type ActionRowItem = {
+  label: string
+  detail: string
+}
+
+type FileChangeStat = {
+  path: string
+  movePath?: string | null
+  added: number
+  removed: number
+  kind: FileChangeMeta['kind']
+}
+
+const isInProgressStatus = (value?: string) => {
+  if (!value) {
+    return false
+  }
+  const normalized = value.replace(/[_\s]/g, '').toLowerCase()
+  return normalized === 'inprogress'
+}
+
+const uniqueStrings = (values: string[]) => {
+  const set = new Set(values.map((value) => value.trim()).filter(Boolean))
+  return Array.from(set)
+}
+
+const compactList = (values: string[], maxItems = 3) => {
+  const unique = uniqueStrings(values)
+  if (unique.length <= maxItems) {
+    return unique.join(', ')
+  }
+  const head = unique.slice(0, maxItems)
+  const remaining = unique.length - maxItems
+  return `${head.join(', ')} +${remaining}`
+}
+
+const isStatusText = (value: string) => {
+  const normalized = value.replace(/[_\s]/g, '').toLowerCase()
+  return (
+    normalized === 'completed' ||
+    normalized === 'inprogress' ||
+    normalized === 'failed' ||
+    normalized === 'declined' ||
+    normalized === 'canceled' ||
+    normalized === 'cancelled'
+  )
+}
+
+const commandActionDetail = (action: CommandAction) => {
+  switch (action.type) {
+    case 'read':
+      return action.name || action.path || action.command
+    case 'listFiles':
+      return action.path || action.command
+    case 'search': {
+      const query = action.query || action.command
+      if (action.path) {
+        return `${query} in ${action.path}`
+      }
+      return query
+    }
+    default:
+      return action.command
+  }
+}
+
+const buildCommandActionRows = (messages: Message[]): ActionRowItem[] => {
+  const rows: ActionRowItem[] = []
+  let pendingReads: string[] = []
+
+  const flushReads = () => {
+    if (!pendingReads.length) {
+      return
+    }
+    const detail = compactList(pendingReads)
+    if (!isStatusText(detail)) {
+      rows.push({
+        label: 'Read',
+        detail,
+      })
+    }
+    pendingReads = []
+  }
+
+  for (const message of messages) {
+    const actions = message.meta?.commandActions ?? []
+    if (actions.length) {
+      const allRead = actions.every((action) => action.type === 'read')
+      if (allRead) {
+        pendingReads.push(...actions.map(commandActionDetail))
+        continue
+      }
+      flushReads()
+      actions.forEach((action) => {
+        const label =
+          action.type === 'read'
+            ? 'Read'
+            : action.type === 'listFiles'
+              ? 'List'
+            : action.type === 'search'
+              ? 'Search'
+              : 'Run'
+        const detail = commandActionDetail(action)
+        if (detail && !isStatusText(detail)) {
+          rows.push({ label, detail })
+        }
+      })
+      continue
+    }
+
+    flushReads()
+    const firstLine = message.content.split('\n')[0]?.trim()
+    if (firstLine && !isStatusText(firstLine)) {
+      rows.push({ label: 'Result', detail: firstLine })
+    }
+  }
+
+  flushReads()
+  return rows
+}
+
+const countDiffLines = (diff: string, kind: FileChangeMeta['kind']) => {
+  const lines = diff.split(/\r?\n/u)
+  if (kind === 'add') {
+    return { added: lines.length, removed: 0 }
+  }
+  if (kind === 'delete') {
+    return { added: 0, removed: lines.length }
+  }
+
+  let added = 0
+  let removed = 0
+  for (const line of lines) {
+    if (
+      line.startsWith('+++') ||
+      line.startsWith('---') ||
+      line.startsWith('@@') ||
+      line.startsWith('diff --git') ||
+      line.startsWith('index ') ||
+      line.startsWith('Moved to:')
+    ) {
+      continue
+    }
+    if (line.startsWith('+')) {
+      added += 1
+    } else if (line.startsWith('-')) {
+      removed += 1
+    }
+  }
+  return { added, removed }
+}
+
+const parseUnifiedDiffStats = (diff: string): FileChangeStat[] => {
+  const stats = new Map<string, FileChangeStat>()
+  let currentKey: string | null = null
+
+  const ensureEntry = (path: string) => {
+    const existing = stats.get(path)
+    if (existing) {
+      currentKey = path
+      return existing
+    }
+    const created: FileChangeStat = { path, added: 0, removed: 0, kind: 'update' }
+    stats.set(path, created)
+    currentKey = path
+    return created
+  }
+
+  for (const line of diff.split(/\r?\n/u)) {
+    const header = line.match(/^diff --git a\/(.+?) b\/(.+)$/u)
+    if (header) {
+      ensureEntry(header[2])
+      continue
+    }
+    const plusHeader = line.match(/^\+\+\+\s+(?:b\/)?(.+)$/u)
+    if (plusHeader) {
+      ensureEntry(plusHeader[1])
+      continue
+    }
+    if (!currentKey) {
+      continue
+    }
+    const current = stats.get(currentKey)
+    if (!current) {
+      continue
+    }
+    if (
+      line.startsWith('+++') ||
+      line.startsWith('---') ||
+      line.startsWith('@@') ||
+      line.startsWith('index ')
+    ) {
+      continue
+    }
+    if (line.startsWith('+')) {
+      current.added += 1
+    } else if (line.startsWith('-')) {
+      current.removed += 1
+    }
+  }
+
+  return Array.from(stats.values())
+}
+
+const parseFileChangesFromContent = (content: string): FileChangeStat[] => {
+  const stats: FileChangeStat[] = []
+  const lines = content.split(/\r?\n/u)
+  for (const line of lines) {
+    const match = line.match(/^\s*([a-zA-Z]+)\s*:\s*(.+)$/u)
+    if (!match) {
+      continue
+    }
+    const kindRaw = match[1].toLowerCase()
+    const detail = match[2].trim()
+    const [path, movePath] = detail.split(/\s*->\s*/u)
+    const kind =
+      kindRaw === 'add' || kindRaw === 'added'
+        ? 'add'
+        : kindRaw === 'delete' || kindRaw === 'deleted'
+          ? 'delete'
+          : 'update'
+    stats.push({
+      path: path.trim(),
+      movePath: movePath?.trim() ?? null,
+      added: 0,
+      removed: 0,
+      kind,
+    })
+  }
+  return stats
+}
+
+const shortenPath = (value: string) => {
+  const normalized = value.replace(/\\/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  if (parts.length <= 2) {
+    return value
+  }
+  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
+}
+
+const buildFileChangeStats = (messages: Message[]): FileChangeStat[] => {
+  const stats: FileChangeStat[] = []
+  let diffFallback: string | null = null
+  let contentFallback: string | null = null
+
+  for (const message of messages) {
+    const changes = message.meta?.fileChanges ?? []
+    for (const change of changes) {
+      const diff = change.diff ?? ''
+      const { added, removed } = countDiffLines(diff, change.kind)
+      stats.push({
+        path: change.path,
+        movePath: change.movePath ?? undefined,
+        added,
+        removed,
+        kind: change.kind,
+      })
+    }
+    if (!changes.length && message.meta?.diff) {
+      diffFallback = message.meta.diff
+    }
+    if (!changes.length && message.content && !contentFallback) {
+      contentFallback = message.content
+    }
+  }
+
+  if (!stats.length && diffFallback) {
+    return parseUnifiedDiffStats(diffFallback)
+  }
+  if (!stats.length && contentFallback) {
+    return parseFileChangesFromContent(contentFallback)
+  }
+  return stats
+}
+
+const summarizeFileChanges = (stats: FileChangeStat[]) => {
+  if (!stats.length) {
+    return { summary: '', rows: [] as ActionRowItem[], verb: 'Edited' }
+  }
+
+  const totalAdded = stats.reduce((sum, entry) => sum + entry.added, 0)
+  const totalRemoved = stats.reduce((sum, entry) => sum + entry.removed, 0)
+  const hasCounts = totalAdded > 0 || totalRemoved > 0
+
+  const formatCounts = (added: number, removed: number) =>
+    hasCounts ? `(+${added} -${removed})` : ''
+  const isSingle = stats.length === 1
+  const verb = isSingle
+    ? stats[0].kind === 'add'
+      ? 'Added'
+      : stats[0].kind === 'delete'
+        ? 'Deleted'
+        : 'Edited'
+    : 'Edited'
+
+  const summary = isSingle
+    ? [
+        `${shortenPath(stats[0].path)}${stats[0].movePath ? ` \u2192 ${shortenPath(stats[0].movePath)}` : ''}`.trim(),
+        formatCounts(stats[0].added, stats[0].removed),
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : [
+        `${stats.length} files`.trim(),
+        formatCounts(totalAdded, totalRemoved),
+      ]
+        .filter(Boolean)
+        .join(' ')
+
+  const rows = stats.map((entry) => ({
+    label: entry.kind === 'add' ? 'Added' : entry.kind === 'delete' ? 'Deleted' : 'Edited',
+    detail: [
+      `${entry.path}${entry.movePath ? ` \u2192 ${entry.movePath}` : ''}`.trim(),
+      formatCounts(entry.added, entry.removed),
+    ]
+      .filter(Boolean)
+      .join(' '),
+  }))
+
+  return { summary, rows, verb }
+}
+
 function getActionType(msg: Message): AssistantAction['type'] {
   if (msg.kind === 'reasoning') return 'reasoning'
   if (msg.kind === 'file') {
+    if (msg.meta?.fileChanges?.length || msg.meta?.diff) {
+      return 'edited'
+    }
     const title = msg.title?.toLowerCase() ?? ''
-    if (title.includes('edit') || title.includes('wrote') || title.includes('creat')) return 'edited'
-    return 'explored'
+    if (title.includes('diff')) return 'edited'
+    return 'edited'
   }
   if (msg.kind === 'command') return 'ran'
   if (msg.kind === 'tool') {
+    if (msg.meta?.commandActions?.length) {
+      const actions = msg.meta.commandActions
+      const exploratory = actions.every((action) =>
+        ['read', 'search', 'listFiles'].includes(action.type)
+      )
+      return exploratory ? 'explored' : 'ran'
+    }
     const title = msg.title?.toLowerCase() ?? ''
     if (title.includes('web search')) return 'searched'
     if (title.includes('read') || title.includes('view') || title.includes('list')) return 'explored'
@@ -108,6 +441,15 @@ function getActionLabel(type: AssistantAction['type'], messages: Message[]): { l
     default:
       return { label: 'Response' }
   }
+}
+
+const extractReasoningHeadline = (content: string) => {
+  const match = content.match(/(?:^|\n)\s*\*\*(.+?)\*\*/u)
+  if (match?.[1]) {
+    return match[1].trim()
+  }
+  const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean)
+  return firstLine || null
 }
 
 function groupMessagesIntoTurns(messages: Message[]): Turn[] {
@@ -234,25 +576,44 @@ export function VirtualizedMessageList({
   const lastScrollTop = useRef(0)
   const isAutoScrolling = useRef(false)
   const prevItemsLength = useRef(0)
-
   const lastMessage = messages[messages.length - 1]
+  const userInteractedRef = useRef(false)
+  const lastMessageSignature = useMemo(() => {
+    if (!lastMessage) {
+      return ''
+    }
+    return `${lastMessage.id}:${lastMessage.content.length}`
+  }, [lastMessage])
+
   const isWaitingForResponse = threadStatus === 'active' && lastMessage?.role === 'user'
   const isTaskRunning = threadStatus === 'active'
   
   const turns = useMemo(() => groupMessagesIntoTurns(messages), [messages])
-  const activeTurnId = turns.length > 0 ? turns[turns.length - 1].id : null
-  const workingTurnId = isTaskRunning && !isWaitingForResponse && turnStartedAt ? activeTurnId : null
+  const activeReasoningHeadline = useMemo(() => {
+    if (!isTaskRunning) {
+      return null
+    }
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i]
+      if (message.kind !== 'reasoning' || !message.content.trim()) {
+        continue
+      }
+      const headline = extractReasoningHeadline(message.content)
+      if (headline) {
+        return headline
+      }
+    }
+    return null
+  }, [isTaskRunning, messages])
   
   const items: Array<
     | { type: 'turn'; data: Turn } 
     | { type: 'approval'; data: ApprovalRequest }
-    | { type: 'thinking'; data: null }
     | { type: 'worked'; data: { duration: number } }
     | { type: 'queued'; data: QueuedMessage }
   > = [
     ...turns.map(t => ({ type: 'turn' as const, data: t })),
     ...approvals.map(a => ({ type: 'approval' as const, data: a })),
-    ...(isWaitingForResponse ? [{ type: 'thinking' as const, data: null }] : []),
     ...(!isTaskRunning && lastTurnDuration ? [{ type: 'worked' as const, data: { duration: lastTurnDuration } }] : []),
     ...queuedMessages.map(q => ({ type: 'queued' as const, data: q })),
   ]
@@ -265,7 +626,6 @@ export function VirtualizedMessageList({
     estimateSize: (index) => {
       const item = items[index]
       if (item.type === 'approval') return 140
-      if (item.type === 'thinking') return 60
       if (item.type === 'worked') return 40
       if (item.type === 'queued') return 80
       const turn = item.data as Turn
@@ -277,8 +637,7 @@ export function VirtualizedMessageList({
         }
         return acc + 44
       }, 0)
-      const workingHeight = workingTurnId && turn.id === workingTurnId ? 60 : 0
-      return userHeight + actionsHeight + workingHeight + 16
+      return userHeight + actionsHeight + 16
     },
     overscan: 3,
   })
@@ -289,12 +648,21 @@ export function VirtualizedMessageList({
     const { scrollTop, scrollHeight, clientHeight } = parentRef.current
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 50
     
+    if (!userInteractedRef.current) {
+      if (isAtBottom) {
+        setUserHasScrolled(false)
+      }
+      lastScrollTop.current = scrollTop
+      return
+    }
+
     if (scrollTop < lastScrollTop.current && !isAtBottom) {
       setUserHasScrolled(true)
     }
-    
+
     if (isAtBottom) {
       setUserHasScrolled(false)
+      userInteractedRef.current = false
     }
     
     lastScrollTop.current = scrollTop
@@ -322,6 +690,19 @@ export function VirtualizedMessageList({
     }
   }, [items.length, virtualizer, userHasScrolled])
 
+  useEffect(() => {
+    if (!isTaskRunning || userHasScrolled || !initialScrollDone.current || items.length === 0) {
+      return
+    }
+    isAutoScrolling.current = true
+    requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(items.length - 1, { align: 'end' })
+      setTimeout(() => {
+        isAutoScrolling.current = false
+      }, 200)
+    })
+  }, [isTaskRunning, userHasScrolled, lastMessageSignature, items.length, virtualizer])
+
   const scrollToBottom = useCallback(() => {
     if (items.length > 0) {
       setUserHasScrolled(false)
@@ -345,9 +726,18 @@ export function VirtualizedMessageList({
     <div className="flex-1 relative">
       <div 
         ref={parentRef} 
-        className="h-full overflow-y-auto px-3 md:px-6 touch-scroll"
+        className={`h-full overflow-y-auto px-3 md:px-6 touch-scroll ${isTaskRunning ? 'pb-20' : ''}`}
         style={{ contain: 'strict' }}
         onScroll={handleScroll}
+        onWheel={() => {
+          userInteractedRef.current = true
+        }}
+        onTouchMove={() => {
+          userInteractedRef.current = true
+        }}
+        onMouseDown={() => {
+          userInteractedRef.current = true
+        }}
       >
         <div
           className="max-w-4xl mx-auto relative"
@@ -367,14 +757,7 @@ export function VirtualizedMessageList({
                 data-index={virtualItem.index}
               >
                 {item.type === 'turn' ? (
-                  <TurnView 
-                    turn={item.data} 
-                    showWorking={workingTurnId === item.data.id}
-                    workingStartedAt={workingTurnId ? turnStartedAt : undefined}
-                    onInterrupt={workingTurnId === item.data.id && isTaskRunning ? onInterrupt : undefined}
-                  />
-                ) : item.type === 'thinking' ? (
-                  <ThinkingBubble onInterrupt={isTaskRunning ? onInterrupt : undefined} />
+                  <TurnView turn={item.data} />
                 ) : item.type === 'worked' ? (
                   <WorkedBubble duration={item.data.duration} />
                 ) : item.type === 'queued' ? (
@@ -393,6 +776,14 @@ export function VirtualizedMessageList({
         </div>
       </div>
 
+      {isTaskRunning && (
+        <StickyWorkingBar
+          message={activeReasoningHeadline ?? (isWaitingForResponse ? 'Thinking' : 'Working')}
+          startedAt={turnStartedAt ?? null}
+          onInterrupt={onInterrupt}
+        />
+      )}
+
       {userHasScrolled && (
         <button
           onClick={scrollToBottom}
@@ -409,48 +800,53 @@ export function VirtualizedMessageList({
   )
 }
 
-function ThinkingBubble({ onInterrupt }: { onInterrupt?: () => void }) {
-  return (
-    <div className="pl-10">
-      <div className="flex items-center gap-2 py-2">
-        <span className="text-text-muted">•</span>
-        <ThinkingIndicator message="Thinking" />
-        {onInterrupt && (
-          <button
-            onClick={onInterrupt}
-            className="ml-2 px-2 py-0.5 text-xs text-text-muted hover:text-error hover:bg-error/10 rounded transition-colors"
-          >
-            Stop
-          </button>
-        )}
-      </div>
-    </div>
+function StickyWorkingBar({
+  message,
+  startedAt,
+  onInterrupt,
+}: {
+  message: string
+  startedAt: number | null
+  onInterrupt?: () => void
+}) {
+  const [elapsed, setElapsed] = useState(() =>
+    startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0
   )
-}
 
-function WorkingBubble({ startedAt, onInterrupt }: { startedAt: number; onInterrupt?: () => void }) {
-  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startedAt) / 1000))
-  
   useEffect(() => {
+    if (!startedAt) {
+      return
+    }
     const interval = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAt) / 1000))
     }, 1000)
     return () => clearInterval(interval)
   }, [startedAt])
-  
+
+  const formatElapsed = (secs: number) => {
+    if (secs < 60) return `${secs}s`
+    const mins = Math.floor(secs / 60)
+    const remaining = secs % 60
+    return `${mins}m ${remaining.toString().padStart(2, '0')}s`
+  }
+
   return (
-    <div className="pl-10">
-      <div className="flex items-center gap-2 py-2">
-        <span className="text-text-muted">•</span>
-        <ThinkingIndicator message="Working" elapsed={elapsed} />
-        {onInterrupt && (
-          <button
-            onClick={onInterrupt}
-            className="ml-2 px-2 py-0.5 text-xs text-text-muted hover:text-error hover:bg-error/10 rounded transition-colors"
-          >
-            Stop
-          </button>
-        )}
+    <div className="absolute bottom-0 left-0 right-0 px-3 md:px-6 pb-3">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center gap-2 bg-bg-elevated/90 border border-border rounded-full px-4 py-2 shadow-lg backdrop-blur">
+          <ShimmerText text={message} className="text-xs text-text-primary font-medium" />
+          {startedAt !== null && (
+            <span className="text-[10px] text-text-muted">({formatElapsed(elapsed)})</span>
+          )}
+          {onInterrupt && (
+            <button
+              onClick={onInterrupt}
+              className="ml-auto px-2 py-0.5 text-[10px] text-text-muted hover:text-error hover:bg-error/10 rounded transition-colors"
+            >
+              Stop
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -495,25 +891,11 @@ function QueuedMessageBubble({ message }: { message: QueuedMessage }) {
   )
 }
 
-function TurnView({ 
-  turn, 
-  showWorking, 
-  workingStartedAt, 
-  onInterrupt 
-}: { 
-  turn: Turn
-  showWorking?: boolean
-  workingStartedAt?: number
-  onInterrupt?: () => void
-}) {
+function TurnView({ turn }: { turn: Turn }) {
   return (
     <div className="space-y-2">
       {turn.userMessage && (
         <UserMessage message={turn.userMessage} />
-      )}
-      
-      {showWorking && workingStartedAt !== undefined && (
-        <WorkingBubble startedAt={workingStartedAt} onInterrupt={onInterrupt} />
       )}
       
       {turn.assistantActions.length > 0 && (
@@ -633,35 +1015,65 @@ function ActionRow({ action }: { action: AssistantAction }) {
     
     return (
       <div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-2 py-1.5 hover:bg-bg-hover/30 rounded px-2 -mx-2 transition-colors w-full text-left"
-        >
-          <span className="text-text-muted/60">•</span>
-          <Icons.ChevronDown 
-            className={`w-3 h-3 text-text-muted transition-transform duration-200 
-                       ${isExpanded ? '' : '-rotate-90'}`} 
-          />
+        <div className="flex items-center gap-2 py-1.5 px-2 -mx-2">
           <span className="text-xs text-text-muted font-medium">{action.label}</span>
           {action.summary && (
             <span className="text-[10px] text-text-muted/60 ml-1">{action.summary}</span>
           )}
-        </button>
-        {isExpanded && (
-          <div className="pl-6 pb-2 pt-1">
-            <Markdown 
-              content={content} 
-              className="text-xs text-text-secondary leading-relaxed"
-            />
-          </div>
-        )}
+        </div>
+        <div className="pl-6 pb-2 pt-1">
+          <Markdown 
+            content={content} 
+            className="text-xs text-text-secondary leading-relaxed"
+          />
+        </div>
       </div>
     )
   }
-  
+
   const content = action.messages.map(m => m.content).join('\n---\n')
   const hasContent = content.trim().length > 0
-  
+  const isActive = action.messages.some((message) => isInProgressStatus(message.meta?.status))
+
+  const commandRows =
+    action.type === 'explored' || action.type === 'ran'
+      ? buildCommandActionRows(action.messages)
+      : []
+  const fileStats = action.type === 'edited' ? buildFileChangeStats(action.messages) : []
+  const fileSummary = action.type === 'edited' ? summarizeFileChanges(fileStats) : null
+
+  const label =
+    action.type === 'explored'
+      ? isActive ? 'Exploring' : 'Explored'
+      : action.type === 'ran'
+        ? isActive ? 'Running' : 'Ran'
+        : action.type === 'edited'
+          ? isActive ? 'Editing' : (fileSummary?.verb ?? 'Edited')
+          : action.label
+
+  const summaryCandidate =
+    action.type === 'edited'
+      ? fileSummary?.summary
+      : action.type === 'ran'
+        ? action.messages.find((message) => message.meta?.command)?.meta?.command ||
+          commandRows.find((row) => row.label === 'Run')?.detail ||
+          action.summary
+        : undefined
+
+  const summary = summaryCandidate && !isStatusText(summaryCandidate) ? summaryCandidate : undefined
+
+  const detailRows =
+    action.type === 'explored'
+      ? commandRows
+      : action.type === 'edited'
+        ? fileSummary?.rows ?? []
+        : []
+
+  const maxRows = 4
+  const canExpand = hasContent || detailRows.length > maxRows
+  const visibleRows = isExpanded ? detailRows : detailRows.slice(0, maxRows)
+  const hiddenCount = detailRows.length - visibleRows.length
+
   const getIcon = () => {
     switch (action.type) {
       case 'explored': return <Icons.Search className="w-3 h-3 text-text-muted/60" />
@@ -671,20 +1083,43 @@ function ActionRow({ action }: { action: AssistantAction }) {
       default: return null
     }
   }
-  
+
   return (
     <div>
       <button
-        onClick={() => hasContent && setIsExpanded(!isExpanded)}
+        onClick={() => canExpand && setIsExpanded(!isExpanded)}
         className={`flex items-center gap-2 py-1.5 rounded px-2 -mx-2 transition-colors w-full text-left
-                   ${hasContent ? 'hover:bg-bg-hover/30 cursor-pointer' : 'cursor-default'}`}
+                   ${canExpand ? 'hover:bg-bg-hover/30 cursor-pointer' : 'cursor-default'}`}
       >
         {getIcon()}
-        <span className="text-xs text-text-primary font-medium">{action.label}</span>
-        {action.summary && (
-          <span className="text-xs text-text-muted ml-1 truncate max-w-[300px]">{action.summary}</span>
+        {isActive ? (
+          <ShimmerText text={label} className="text-xs text-text-primary font-medium" />
+        ) : (
+          <span className="text-xs text-text-primary font-medium">{label}</span>
+        )}
+        {summary && (
+          <span className="text-xs text-text-muted ml-1 truncate max-w-[320px]">{summary}</span>
+        )}
+        {canExpand && (
+          <Icons.ChevronDown
+            className={`w-3 h-3 text-text-muted ml-auto transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
+          />
         )}
       </button>
+      {detailRows.length > 0 && (
+        <div className="pl-6 pb-1 pt-0.5 space-y-0.5">
+          {visibleRows.map((row, index) => (
+            <div key={`${row.label}-${index}`} className="text-xs text-text-secondary">
+              <span className="text-text-muted">{row.label}</span>
+              <span className="text-text-muted/60"> · </span>
+              <span>{row.detail}</span>
+            </div>
+          ))}
+          {!isExpanded && hiddenCount > 0 && (
+            <div className="text-[10px] text-text-muted">+{hiddenCount} more</div>
+          )}
+        </div>
+      )}
       {isExpanded && hasContent && (
         <div className="pl-6 pb-2 pt-1">
           <pre className="text-xs text-text-secondary whitespace-pre-wrap leading-relaxed font-mono bg-bg-primary/50 rounded p-2 max-h-[300px] overflow-y-auto">

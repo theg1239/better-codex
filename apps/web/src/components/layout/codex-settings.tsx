@@ -31,19 +31,23 @@ type McpTemplate = {
   id: string
   label: string
   description: string
+  icon: 'terminal' | 'globe' | 'bolt'
   preset: Partial<McpServerDraft>
 }
 
+type ActiveTab = 'servers' | 'config'
+
 const transportOptions: SelectOption[] = [
-  { value: 'stdio', label: 'stdio', description: 'Launches a local MCP server command.' },
-  { value: 'http', label: 'http', description: 'Connects to a streamable HTTP MCP server.' },
+  { value: 'stdio', label: 'Local (stdio)', description: 'Launches a local MCP server command.' },
+  { value: 'http', label: 'Remote (HTTP)', description: 'Connects to a streamable HTTP MCP server.' },
 ]
 
 const mcpTemplates: McpTemplate[] = [
   {
     id: 'shell-tool',
-    label: 'Codex Shell MCP',
-    description: 'Sandbox-aware shell tool server for Codex.',
+    label: 'Shell Tool',
+    description: 'Sandbox-aware shell commands',
+    icon: 'terminal',
     preset: {
       name: 'shell-tool',
       transport: 'stdio',
@@ -53,8 +57,9 @@ const mcpTemplates: McpTemplate[] = [
   },
   {
     id: 'playwright',
-    label: 'Playwright MCP',
-    description: 'Browser automation via Playwright.',
+    label: 'Playwright',
+    description: 'Browser automation',
+    icon: 'globe',
     preset: {
       name: 'playwright',
       transport: 'stdio',
@@ -64,8 +69,9 @@ const mcpTemplates: McpTemplate[] = [
   },
   {
     id: 'http',
-    label: 'Streamable HTTP MCP',
-    description: 'Remote MCP server over HTTP.',
+    label: 'HTTP Server',
+    description: 'Remote MCP endpoint',
+    icon: 'bolt',
     preset: {
       name: 'remote-mcp',
       transport: 'http',
@@ -142,6 +148,327 @@ const configSnippetOptions: SelectOption[] = configSnippets.map((snippet) => ({
   label: snippet.label,
   description: snippet.description,
 }))
+
+// Field label component for consistent styling
+function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2 mb-1.5">
+      <span className="text-xs font-medium text-text-secondary">{children}</span>
+      {hint && <span className="text-[10px] text-text-muted">({hint})</span>}
+    </div>
+  )
+}
+
+// Card component for server entries
+function ServerCard({
+  server,
+  onUpdate,
+  onRemove,
+  disabled,
+}: {
+  server: McpServerDraft
+  index: number
+  onUpdate: (updater: (prev: McpServerDraft) => McpServerDraft) => void
+  onRemove: () => void
+  disabled?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  return (
+    <div className={`group relative rounded-xl border transition-all duration-200 ${
+      server.enabled 
+        ? 'bg-bg-secondary border-border hover:border-text-muted/40' 
+        : 'bg-bg-primary border-border/50 opacity-60'
+    }`}>
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4">
+        <div className={`w-2 h-2 rounded-full transition-colors ${
+          server.enabled ? 'bg-accent-green' : 'bg-text-muted'
+        }`} />
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={server.name}
+              placeholder="server_name"
+              disabled={disabled}
+              onChange={(e) => onUpdate((prev) => ({ ...prev, name: e.target.value }))}
+              className="bg-transparent text-sm font-medium text-text-primary placeholder:text-text-muted outline-none flex-1 min-w-0"
+            />
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+              server.transport === 'http' 
+                ? 'bg-accent-blue/15 text-accent-blue' 
+                : 'bg-accent-green/15 text-accent-green'
+            }`}>
+              {server.transport.toUpperCase()}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted mt-0.5 truncate">
+            {server.transport === 'http' 
+              ? server.url || 'No URL configured' 
+              : server.command ? `${server.command} ${server.args}` : 'No command configured'
+            }
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={() => onUpdate((prev) => ({ ...prev, enabled: !prev.enabled }))}
+            disabled={disabled}
+            className="p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
+            title={server.enabled ? 'Disable server' : 'Enable server'}
+          >
+            {server.enabled ? (
+              <Icons.Check className="w-4 h-4" />
+            ) : (
+              <Icons.X className="w-4 h-4" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            disabled={disabled}
+            className="p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Icons.Settings className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={disabled}
+            className="p-1.5 rounded-lg hover:bg-accent-red/10 text-text-muted hover:text-accent-red transition-colors"
+          >
+            <Icons.Trash className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="border-t border-border/60 p-4 space-y-4 bg-bg-primary/50 rounded-b-xl">
+          {/* Transport selection */}
+          <div>
+            <FieldLabel>Transport Type</FieldLabel>
+            <div className="flex gap-2">
+              {transportOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onUpdate((prev) => ({ ...prev, transport: opt.value as 'stdio' | 'http' }))}
+                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    server.transport === opt.value
+                      ? 'bg-text-primary text-bg-primary'
+                      : 'bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Transport-specific fields */}
+          {server.transport === 'stdio' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <FieldLabel>Command</FieldLabel>
+                <Input
+                  value={server.command}
+                  placeholder="npx, node, python..."
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, command: value }))}
+                />
+              </div>
+              <div>
+                <FieldLabel hint="comma separated">Arguments</FieldLabel>
+                <Input
+                  value={server.args}
+                  placeholder="-y, @package/name"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, args: value }))}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <FieldLabel>Working Directory</FieldLabel>
+                <Input
+                  value={server.cwd}
+                  placeholder="/path/to/working/directory"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, cwd: value }))}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <FieldLabel>Server URL</FieldLabel>
+                <Input
+                  value={server.url}
+                  placeholder="https://mcp.example.com/mcp"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, url: value }))}
+                />
+              </div>
+              <div>
+                <FieldLabel hint="environment variable name">Bearer Token</FieldLabel>
+                <Input
+                  value={server.bearer_token_env_var}
+                  placeholder="MCP_TOKEN"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, bearer_token_env_var: value }))}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Environment variables for stdio */}
+          {server.transport === 'stdio' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <FieldLabel>Environment Variables</FieldLabel>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onUpdate((prev) => ({ ...prev, env: [...prev.env, { key: '', value: '' }] }))}
+                  className="text-xs text-text-muted hover:text-text-primary transition-colors"
+                >
+                  + Add variable
+                </button>
+              </div>
+              {server.env.length === 0 ? (
+                <p className="text-xs text-text-muted italic">No environment variables</p>
+              ) : (
+                <div className="space-y-2">
+                  {server.env.map((entry, envIndex) => (
+                    <div key={envIndex} className="flex items-center gap-2">
+                      <Input
+                        value={entry.key}
+                        placeholder="KEY"
+                        onChange={(value) => onUpdate((prev) => ({
+                          ...prev,
+                          env: prev.env.map((item, idx) => idx === envIndex ? { ...item, key: value } : item),
+                        }))}
+                        className="flex-1"
+                      />
+                      <span className="text-text-muted">=</span>
+                      <Input
+                        value={entry.value}
+                        placeholder="value"
+                        onChange={(value) => onUpdate((prev) => ({
+                          ...prev,
+                          env: prev.env.map((item, idx) => idx === envIndex ? { ...item, value } : item),
+                        }))}
+                        className="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onUpdate((prev) => ({
+                          ...prev,
+                          env: prev.env.filter((_, idx) => idx !== envIndex),
+                        }))}
+                        className="p-1.5 rounded hover:bg-accent-red/10 text-text-muted hover:text-accent-red transition-colors"
+                      >
+                        <Icons.X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* HTTP Headers for http transport */}
+          {server.transport === 'http' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <FieldLabel>HTTP Headers</FieldLabel>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onUpdate((prev) => ({ ...prev, http_headers: [...prev.http_headers, { key: '', value: '' }] }))}
+                  className="text-xs text-text-muted hover:text-text-primary transition-colors"
+                >
+                  + Add header
+                </button>
+              </div>
+              {server.http_headers.length === 0 ? (
+                <p className="text-xs text-text-muted italic">No custom headers</p>
+              ) : (
+                <div className="space-y-2">
+                  {server.http_headers.map((entry, headerIndex) => (
+                    <div key={headerIndex} className="flex items-center gap-2">
+                      <Input
+                        value={entry.key}
+                        placeholder="Header-Name"
+                        onChange={(value) => onUpdate((prev) => ({
+                          ...prev,
+                          http_headers: prev.http_headers.map((item, idx) => idx === headerIndex ? { ...item, key: value } : item),
+                        }))}
+                        className="flex-1"
+                      />
+                      <span className="text-text-muted">:</span>
+                      <Input
+                        value={entry.value}
+                        placeholder="value"
+                        onChange={(value) => onUpdate((prev) => ({
+                          ...prev,
+                          http_headers: prev.http_headers.map((item, idx) => idx === headerIndex ? { ...item, value } : item),
+                        }))}
+                        className="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onUpdate((prev) => ({
+                          ...prev,
+                          http_headers: prev.http_headers.filter((_, idx) => idx !== headerIndex),
+                        }))}
+                        className="p-1.5 rounded hover:bg-accent-red/10 text-text-muted hover:text-accent-red transition-colors"
+                      >
+                        <Icons.X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Advanced section */}
+          <details className="group/advanced">
+            <summary className="text-xs text-text-muted cursor-pointer hover:text-text-secondary transition-colors list-none flex items-center gap-1">
+              <Icons.ChevronRight className="w-3 h-3 transition-transform group-open/advanced:rotate-90" />
+              Advanced options
+            </summary>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <FieldLabel hint="seconds">Startup Timeout</FieldLabel>
+                <Input
+                  value={server.startup_timeout_sec}
+                  placeholder="30"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, startup_timeout_sec: value }))}
+                />
+              </div>
+              <div>
+                <FieldLabel hint="seconds">Tool Timeout</FieldLabel>
+                <Input
+                  value={server.tool_timeout_sec}
+                  placeholder="60"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, tool_timeout_sec: value }))}
+                />
+              </div>
+              <div>
+                <FieldLabel hint="comma separated">Enabled Tools</FieldLabel>
+                <Input
+                  value={server.enabled_tools}
+                  placeholder="tool1, tool2"
+                  onChange={(value) => onUpdate((prev) => ({ ...prev, enabled_tools: value }))}
+                />
+              </div>
+            </div>
+          </details>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const splitList = (value: string) =>
   value
@@ -517,582 +844,359 @@ export function CodexSettings() {
     }
   }
 
+  const [activeTab, setActiveTab] = useState<ActiveTab>('servers')
+
   if (!profileId) {
     return (
-      <div className="p-6">
-        <div className="max-w-2xl">
-          <h3 className="text-base font-semibold text-text-primary mb-1">Codex Configuration</h3>
-          <p className="text-sm text-text-muted">Create a profile to manage Codex configuration.</p>
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="text-center max-w-sm">
+          <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center mx-auto mb-4">
+            <Icons.Settings className="w-6 h-6 text-text-muted" />
+          </div>
+          <h3 className="text-lg font-semibold text-text-primary mb-2">No Profile Selected</h3>
+          <p className="text-sm text-text-muted">
+            Create or select a profile to configure Codex settings and MCP servers.
+          </p>
         </div>
       </div>
     )
   }
 
+  const isDisabled = loading || connectionStatus !== 'connected'
+
   return (
-    <div className="p-6">
-      <div className="max-w-4xl space-y-8">
-        <div>
-          <h3 className="text-base font-semibold text-text-primary mb-1">Codex Configuration</h3>
-          <p className="text-sm text-text-muted">
-            Manage MCP servers and edit the full config.toml for each Codex profile.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-[220px]">
-            <Select
-              options={profileOptions}
-              value={profileId}
-              onChange={setProfileId}
-              placeholder="Select profile"
-              size="md"
-              label="Profile"
-            />
-          </div>
-          <Button variant="ghost" size="sm" disabled={loading} onClick={handleReload}>
-            Reload
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={!configPath}
-            onClick={handleCopyPath}
-          >
-            Copy path
-          </Button>
-          <a
-            href="https://github.com/openai/codex/blob/main/docs/config.md"
-            target="_blank"
-            rel="noreferrer"
-            className="text-xs text-text-muted hover:text-text-primary transition-colors"
-          >
-            Config docs
-          </a>
-          {configPath && (
-            <span className="text-xs text-text-muted break-all">
-              {configPath}
-            </span>
-          )}
-          {connectionStatus !== 'connected' && (
-            <span className="text-xs text-accent-red">
-              Backend offline — connect to edit config.
-            </span>
-          )}
-        </div>
-
-        {status && (
-          <div className={`text-xs ${status.type === 'error' ? 'text-accent-red' : 'text-accent-green'}`}>
-            {status.message}
-          </div>
-        )}
-
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="shrink-0 border-b border-border bg-bg-secondary/50">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h4 className="text-sm font-semibold text-text-primary">MCP servers</h4>
-              <p className="text-xs text-text-muted">
-                Configure MCP tool servers. Saves only the MCP block inside config.toml. Restart the profile to apply changes.
+              <h2 className="text-lg font-semibold text-text-primary">Configuration</h2>
+              <p className="text-xs text-text-muted mt-0.5">
+                Manage MCP servers and Codex settings
               </p>
-              <p className="text-xs text-text-muted">
-                The MCP editor rewrites MCP blocks; use raw config if you need unsupported fields.
-              </p>
-              <a
-                href="https://github.com/openai/codex/blob/main/docs/config.md#mcp_servers"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-text-muted hover:text-text-primary transition-colors inline-block mt-1"
-              >
-                MCP docs
-              </a>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => addServer()}
-                disabled={loading || connectionStatus !== 'connected'}
-              >
-                <Icons.Plus className="w-3.5 h-3.5" />
-                Add server
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleSaveMcp}
-                disabled={loading || savingMcp || connectionStatus !== 'connected' || !mcpDirty}
-              >
-                Save MCP servers
-              </Button>
-            </div>
-          </div>
-
-          {configDirty && (
-            <div className="text-xs text-accent-red">
-              Raw config has unsaved changes. Save or reload before applying MCP updates.
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="text-xs text-text-muted">Quick add</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {mcpTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  disabled={loading || connectionStatus !== 'connected'}
-                  onClick={() => addServer(template.preset)}
-                  className="text-left border border-border rounded-lg p-3 bg-bg-secondary hover:bg-bg-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="text-xs font-semibold text-text-primary">{template.label}</div>
-                  <div className="text-[11px] text-text-muted">{template.description}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {mcpDraft.length === 0 && (
-            <div className="text-xs text-text-muted bg-bg-tertiary border border-border rounded-lg p-4">
-              No MCP servers configured yet.
-            </div>
-          )}
-
-          <div className="space-y-4">
-            {mcpDraft.map((server, index) => (
-              <div key={`${server.name}-${index}`} className="bg-bg-tertiary border border-border rounded-xl p-4 space-y-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex-1 min-w-[220px]">
-                    <Input
-                      value={server.name}
-                      placeholder="server_name"
-                      onChange={(value) =>
-                        updateServer(index, (prev) => ({ ...prev, name: value }))
-                      }
-                    />
-                  </div>
-                  <div className="min-w-[180px]">
-                    <Select
-                      options={transportOptions}
-                      value={server.transport}
-                      onChange={(value) =>
-                        updateServer(index, (prev) => ({
-                          ...prev,
-                          transport: value === 'http' ? 'http' : 'stdio',
-                        }))
-                      }
-                      size="md"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <span>enabled</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="sr-only peer"
-                        checked={server.enabled}
-                        onChange={(event) =>
-                          updateServer(index, (prev) => ({ ...prev, enabled: event.target.checked }))
-                        }
-                      />
-                      <div className="w-9 h-5 bg-bg-elevated peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent-green"></div>
-                    </label>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeServer(index)}
-                  >
-                    <Icons.Trash className="w-3.5 h-3.5" />
-                    Remove
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {server.transport === 'stdio' && (
-                    <>
-                      <Input
-                        value={server.command}
-                        placeholder="command"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({ ...prev, command: value }))
-                        }
-                      />
-                      <Input
-                        value={server.args}
-                        placeholder="args (comma or newline)"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({ ...prev, args: value }))
-                        }
-                      />
-                    </>
-                  )}
-                  {server.transport === 'http' && (
-                    <>
-                      <Input
-                        value={server.url}
-                        placeholder="url"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({ ...prev, url: value }))
-                        }
-                      />
-                      <Input
-                        value={server.bearer_token_env_var}
-                        placeholder="bearer_token_env_var"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({
-                            ...prev,
-                            bearer_token_env_var: value,
-                          }))
-                        }
-                      />
-                    </>
-                  )}
-                </div>
-
-                <details className="rounded-lg border border-border/60 bg-bg-secondary/30 p-3">
-                  <summary className="text-xs text-text-muted cursor-pointer">
-                    Advanced settings
-                  </summary>
-                  <div className="mt-3 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <Input
-                        value={server.enabled_tools}
-                        placeholder="enabled_tools (comma or newline)"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({ ...prev, enabled_tools: value }))
-                        }
-                      />
-                      <Input
-                        value={server.disabled_tools}
-                        placeholder="disabled_tools (comma or newline)"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({ ...prev, disabled_tools: value }))
-                        }
-                      />
-                      <Input
-                        value={server.startup_timeout_sec}
-                        placeholder="startup_timeout_sec"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({
-                            ...prev,
-                            startup_timeout_sec: value,
-                          }))
-                        }
-                      />
-                      <Input
-                        value={server.startup_timeout_ms}
-                        placeholder="startup_timeout_ms (overrides sec)"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({
-                            ...prev,
-                            startup_timeout_ms: value,
-                          }))
-                        }
-                      />
-                      <Input
-                        value={server.tool_timeout_sec}
-                        placeholder="tool_timeout_sec"
-                        onChange={(value) =>
-                          updateServer(index, (prev) => ({
-                            ...prev,
-                            tool_timeout_sec: value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    {server.transport === 'stdio' && (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <Input
-                            value={server.env_vars}
-                            placeholder="env_vars (comma or newline)"
-                            onChange={(value) =>
-                              updateServer(index, (prev) => ({ ...prev, env_vars: value }))
-                            }
-                          />
-                          <Input
-                            value={server.cwd}
-                            placeholder="cwd"
-                            onChange={(value) =>
-                              updateServer(index, (prev) => ({ ...prev, cwd: value }))
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-text-muted">env</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                updateServer(index, (prev) => ({
-                                  ...prev,
-                                  env: [...prev.env, { key: '', value: '' }],
-                                }))
-                              }
-                            >
-                              <Icons.Plus className="w-3.5 h-3.5" />
-                              Add env var
-                            </Button>
-                          </div>
-                          {server.env.length === 0 && (
-                            <div className="text-xs text-text-muted">No env vars configured.</div>
-                          )}
-                          {server.env.map((entry, envIndex) => (
-                            <div key={`${entry.key}-${envIndex}`} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
-                              <Input
-                                value={entry.key}
-                                placeholder="KEY"
-                                onChange={(value) =>
-                                  updateServer(index, (prev) => ({
-                                    ...prev,
-                                    env: prev.env.map((item, idx) =>
-                                      idx === envIndex ? { ...item, key: value } : item
-                                    ),
-                                  }))
-                                }
-                              />
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={entry.value}
-                                  placeholder="value"
-                                  onChange={(value) =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      env: prev.env.map((item, idx) =>
-                                        idx === envIndex ? { ...item, value } : item
-                                      ),
-                                    }))
-                                  }
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      env: prev.env.filter((_, idx) => idx !== envIndex),
-                                    }))
-                                  }
-                                >
-                                  <Icons.Trash className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {server.transport === 'http' && (
-                      <div className="space-y-3">
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-text-muted">http_headers</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                updateServer(index, (prev) => ({
-                                  ...prev,
-                                  http_headers: [...prev.http_headers, { key: '', value: '' }],
-                                }))
-                              }
-                            >
-                              <Icons.Plus className="w-3.5 h-3.5" />
-                              Add header
-                            </Button>
-                          </div>
-                          {server.http_headers.length === 0 && (
-                            <div className="text-xs text-text-muted">No headers configured.</div>
-                          )}
-                          {server.http_headers.map((entry, headerIndex) => (
-                            <div key={`${entry.key}-${headerIndex}`} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
-                              <Input
-                                value={entry.key}
-                                placeholder="Header-Name"
-                                onChange={(value) =>
-                                  updateServer(index, (prev) => ({
-                                    ...prev,
-                                    http_headers: prev.http_headers.map((item, idx) =>
-                                      idx === headerIndex ? { ...item, key: value } : item
-                                    ),
-                                  }))
-                                }
-                              />
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={entry.value}
-                                  placeholder="value"
-                                  onChange={(value) =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      http_headers: prev.http_headers.map((item, idx) =>
-                                        idx === headerIndex ? { ...item, value } : item
-                                      ),
-                                    }))
-                                  }
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      http_headers: prev.http_headers.filter((_, idx) => idx !== headerIndex),
-                                    }))
-                                  }
-                                >
-                                  <Icons.Trash className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-text-muted">env_http_headers</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                updateServer(index, (prev) => ({
-                                  ...prev,
-                                  env_http_headers: [...prev.env_http_headers, { key: '', value: '' }],
-                                }))
-                              }
-                            >
-                              <Icons.Plus className="w-3.5 h-3.5" />
-                              Add env header
-                            </Button>
-                          </div>
-                          {server.env_http_headers.length === 0 && (
-                            <div className="text-xs text-text-muted">No env headers configured.</div>
-                          )}
-                          {server.env_http_headers.map((entry, headerIndex) => (
-                            <div key={`${entry.key}-${headerIndex}`} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
-                              <Input
-                                value={entry.key}
-                                placeholder="Header-Name"
-                                onChange={(value) =>
-                                  updateServer(index, (prev) => ({
-                                    ...prev,
-                                    env_http_headers: prev.env_http_headers.map((item, idx) =>
-                                      idx === headerIndex ? { ...item, key: value } : item
-                                    ),
-                                  }))
-                                }
-                              />
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={entry.value}
-                                  placeholder="ENV_VAR"
-                                  onChange={(value) =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      env_http_headers: prev.env_http_headers.map((item, idx) =>
-                                        idx === headerIndex ? { ...item, value } : item
-                                      ),
-                                    }))
-                                  }
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    updateServer(index, (prev) => ({
-                                      ...prev,
-                                      env_http_headers: prev.env_http_headers.filter((_, idx) => idx !== headerIndex),
-                                    }))
-                                  }
-                                >
-                                  <Icons.Trash className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </details>
+            
+            {connectionStatus !== 'connected' && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-accent-red/10 border border-accent-red/20">
+                <div className="w-2 h-2 rounded-full bg-accent-red animate-pulse" />
+                <span className="text-xs font-medium text-accent-red">Backend Offline</span>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-semibold text-text-primary">Raw config.toml</h4>
-              <p className="text-xs text-text-muted">
-                Edit any Codex configuration (models, sandboxing, features, profiles). Restart the profile to apply changes.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleResetConfig}
-                disabled={loading || savingConfig || connectionStatus !== 'connected'}
-              >
-                Reset config
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setConfigDraft(configSaved)}
-                disabled={loading || !configDirty}
-              >
-                Discard changes
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleSaveConfig}
-                disabled={loading || savingConfig || connectionStatus !== 'connected' || !configDirty}
-              >
-                Save config
-              </Button>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-[220px]">
-              <Select
-                options={configSnippetOptions}
-                value={snippetId}
-                onChange={setSnippetId}
-                placeholder="Insert snippet"
-                size="sm"
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!selectedSnippet}
-              onClick={() => {
-                if (selectedSnippet) {
-                  insertSnippet(selectedSnippet.content)
-                }
-              }}
-            >
-              Insert snippet
-            </Button>
-            {selectedSnippet && (
-              <span className="text-xs text-text-muted">
-                {selectedSnippet.description}
-              </span>
             )}
           </div>
-          <textarea
-            value={configDraft}
-            onChange={(event) => setConfigDraft(event.target.value)}
-            placeholder="# config.toml"
-            className="w-full min-h-[240px] bg-bg-tertiary border border-border rounded-xl p-4 text-xs text-text-primary font-mono outline-none focus:border-text-muted transition-colors"
-            spellCheck={false}
-            disabled={loading || connectionStatus !== 'connected'}
-          />
-        </section>
+
+          {/* Profile selector and actions */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 max-w-[240px]">
+              <Select
+                options={profileOptions}
+                value={profileId}
+                onChange={setProfileId}
+                placeholder="Select profile"
+                size="md"
+              />
+            </div>
+            
+            <div className="h-5 w-px bg-border" />
+            
+            <button
+              type="button"
+              onClick={handleReload}
+              disabled={loading}
+              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50"
+              title="Reload configuration"
+            >
+              <Icons.Loader className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleCopyPath}
+              disabled={!configPath}
+              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50"
+              title="Copy config path"
+            >
+              <Icons.Copy className="w-4 h-4" />
+            </button>
+
+            <a
+              href="https://github.com/openai/codex/blob/main/docs/config.md"
+              target="_blank"
+              rel="noreferrer"
+              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+              title="View documentation"
+            >
+              <Icons.Help className="w-4 h-4" />
+            </a>
+          </div>
+
+          {/* Config path */}
+          {configPath && (
+            <div className="mt-3 text-[11px] text-text-muted font-mono bg-bg-primary/50 px-2 py-1 rounded inline-block">
+              {configPath}
+            </div>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="px-6 flex gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab('servers')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative ${
+              activeTab === 'servers'
+                ? 'text-text-primary bg-bg-primary'
+                : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            MCP Servers
+            {mcpDraft.length > 0 && (
+              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full ${
+                activeTab === 'servers' ? 'bg-bg-tertiary' : 'bg-bg-tertiary/50'
+              }`}>
+                {mcpDraft.length}
+              </span>
+            )}
+            {mcpDirty && (
+              <span className="absolute top-2 right-1 w-1.5 h-1.5 rounded-full bg-accent-blue" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('config')}
+            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative ${
+              activeTab === 'config'
+                ? 'text-text-primary bg-bg-primary'
+                : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            Raw Config
+            {configDirty && (
+              <span className="absolute top-2 right-1 w-1.5 h-1.5 rounded-full bg-accent-blue" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Status message */}
+      {status && (
+        <div className={`mx-6 mt-4 px-4 py-3 rounded-lg text-sm flex items-center gap-2 ${
+          status.type === 'error' 
+            ? 'bg-accent-red/10 text-accent-red border border-accent-red/20' 
+            : 'bg-accent-green/10 text-accent-green border border-accent-green/20'
+        }`}>
+          {status.type === 'error' ? (
+            <Icons.Warning className="w-4 h-4 shrink-0" />
+          ) : (
+            <Icons.Check className="w-4 h-4 shrink-0" />
+          )}
+          {status.message}
+        </div>
+      )}
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {activeTab === 'servers' ? (
+          <div className="max-w-3xl space-y-6">
+            {/* Quick add templates */}
+            <div>
+              <h4 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">
+                Quick Add
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {mcpTemplates.map((template) => {
+                  const IconComponent = template.icon === 'terminal' ? Icons.Terminal 
+                    : template.icon === 'globe' ? Icons.Globe 
+                    : Icons.Bolt
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      disabled={isDisabled}
+                      onClick={() => addServer(template.preset)}
+                      className="group flex items-start gap-3 p-4 rounded-xl border border-border bg-bg-secondary hover:bg-bg-hover hover:border-text-muted/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-left"
+                    >
+                      <div className="w-9 h-9 rounded-lg bg-bg-tertiary group-hover:bg-bg-primary flex items-center justify-center shrink-0 transition-colors">
+                        <IconComponent className="w-4 h-4 text-text-muted group-hover:text-text-primary transition-colors" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-text-primary">{template.label}</div>
+                        <div className="text-xs text-text-muted mt-0.5">{template.description}</div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Server list */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-medium text-text-muted uppercase tracking-wide">
+                  Configured Servers
+                </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => addServer()}
+                    disabled={isDisabled}
+                    className="text-xs text-text-muted hover:text-text-primary transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <Icons.Plus className="w-3.5 h-3.5" />
+                    Add empty
+                  </button>
+                </div>
+              </div>
+
+              {mcpDraft.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-bg-secondary/30 p-8 text-center">
+                  <div className="w-10 h-10 rounded-full bg-bg-tertiary flex items-center justify-center mx-auto mb-3">
+                    <Icons.Bolt className="w-5 h-5 text-text-muted" />
+                  </div>
+                  <p className="text-sm text-text-muted mb-1">No MCP servers configured</p>
+                  <p className="text-xs text-text-muted/70">
+                    Add a server template above or create a custom one
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {mcpDraft.map((server, index) => (
+                    <ServerCard
+                      key={`${server.name}-${index}`}
+                      server={server}
+                      index={index}
+                      onUpdate={(updater) => updateServer(index, updater)}
+                      onRemove={() => removeServer(index)}
+                      disabled={isDisabled}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Save button - sticky at bottom when there are changes */}
+            {mcpDirty && (
+              <div className="sticky bottom-0 pt-4 pb-2 bg-gradient-to-t from-bg-primary via-bg-primary to-transparent">
+                <div className="flex items-center justify-between p-4 rounded-xl bg-bg-secondary border border-border">
+                  <div className="text-sm text-text-muted">
+                    {configDirty ? (
+                      <span className="text-accent-red">Save raw config first before saving MCP servers</span>
+                    ) : (
+                      'You have unsaved changes'
+                    )}
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveMcp}
+                    disabled={isDisabled || savingMcp || configDirty}
+                  >
+                    {savingMcp ? 'Saving...' : 'Save MCP Servers'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="max-w-3xl space-y-6">
+            {/* Snippets */}
+            <div>
+              <h4 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">
+                Insert Snippet
+              </h4>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 max-w-[280px]">
+                  <Select
+                    options={configSnippetOptions}
+                    value={snippetId}
+                    onChange={setSnippetId}
+                    placeholder="Choose a snippet"
+                    size="md"
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!selectedSnippet || isDisabled}
+                  onClick={() => {
+                    if (selectedSnippet) {
+                      insertSnippet(selectedSnippet.content)
+                    }
+                  }}
+                >
+                  Insert
+                </Button>
+                {selectedSnippet && (
+                  <span className="text-xs text-text-muted">
+                    {selectedSnippet.description}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Editor */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-xs font-medium text-text-muted uppercase tracking-wide">
+                  config.toml
+                </h4>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfigDraft(configSaved)}
+                    disabled={!configDirty || isDisabled}
+                    className="text-xs text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
+                  >
+                    Discard changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetConfig}
+                    disabled={isDisabled || savingConfig}
+                    className="text-xs text-accent-red/70 hover:text-accent-red transition-colors disabled:opacity-50"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              </div>
+              
+              <div className="relative">
+                <textarea
+                  value={configDraft}
+                  onChange={(event) => setConfigDraft(event.target.value)}
+                  placeholder="# config.toml&#10;&#10;# Add your configuration here..."
+                  className="w-full min-h-[400px] bg-bg-secondary border border-border rounded-xl p-4 text-sm text-text-primary font-mono outline-none focus:border-text-muted/50 transition-colors resize-y"
+                  spellCheck={false}
+                  disabled={isDisabled}
+                />
+                {configDirty && (
+                  <div className="absolute top-3 right-3 text-[10px] px-2 py-1 rounded bg-accent-blue/15 text-accent-blue font-medium">
+                    Modified
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Save button */}
+            {configDirty && (
+              <div className="sticky bottom-0 pt-4 pb-2 bg-gradient-to-t from-bg-primary via-bg-primary to-transparent">
+                <div className="flex items-center justify-between p-4 rounded-xl bg-bg-secondary border border-border">
+                  <div className="text-sm text-text-muted">
+                    You have unsaved config changes
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleSaveConfig}
+                    disabled={isDisabled || savingConfig}
+                  >
+                    {savingConfig ? 'Saving...' : 'Save Config'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

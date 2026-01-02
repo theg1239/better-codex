@@ -278,8 +278,9 @@ export const useHubConnection = () => {
                   id: `diff-${turnId ?? threadId}`,
                   role: 'assistant',
                   kind: 'file',
-                  title: 'Diff · updated',
+                  title: 'Diff',
                   content,
+                  meta: { diff },
                   timestamp: nowTimestamp(),
                 })
               }
