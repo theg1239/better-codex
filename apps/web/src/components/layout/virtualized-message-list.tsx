@@ -444,14 +444,29 @@ function getActionLabel(type: AssistantAction['type'], messages: Message[]): { l
   }
 }
 
-const hasBoldHeadline = (content: string) => /\*\*.+?\*\*/u.test(content)
+const extractBoldHeadline = (content: string): string | null => {
+  const match = content.match(/\*\*(.+?)\*\*/)
+  return match ? match[1] : null
+}
 
 const extractReasoningHeadline = (content: string) => {
-  if (hasBoldHeadline(content)) {
-    return null
+  const boldHeadline = extractBoldHeadline(content)
+  if (boldHeadline) {
+    return boldHeadline
   }
   const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean)
   return firstLine || null
+}
+
+const stripBoldHeadlines = (content: string): string => {
+  return content
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim()
+      return !/^\*\*.+?\*\*$/u.test(trimmed)
+    })
+    .join('\n')
+    .trim()
 }
 
 function groupMessagesIntoTurns(messages: Message[]): Turn[] {
@@ -1055,10 +1070,9 @@ function ActionRow({ action }: { action: AssistantAction }) {
   }
   
   if (action.type === 'reasoning') {
-    const content = action.messages.map(m => m.content).join('\n\n')
-    const trimmed = content.trim().toLowerCase()
+    const rawContent = action.messages.map(m => m.content).join('\n\n')
+    const trimmed = rawContent.trim().toLowerCase()
     const isPlaceholder = !trimmed || trimmed === 'reasoning' || trimmed === 'reasoning summary' || trimmed === 'thinking'
-    const isSummary = !hasBoldHeadline(content)
     
     if (isPlaceholder) {
       return (
@@ -1068,7 +1082,9 @@ function ActionRow({ action }: { action: AssistantAction }) {
       )
     }
 
-    if (isSummary) {
+    const content = stripBoldHeadlines(rawContent)
+    
+    if (!content.trim()) {
       return null
     }
     

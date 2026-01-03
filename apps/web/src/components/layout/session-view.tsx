@@ -3,7 +3,7 @@ import { useAppStore } from '../../store'
 import { type SelectOption } from '../ui'
 import { VirtualizedMessageList } from './virtualized-message-list'
 import { hubClient } from '../../services/hub-client'
-import type { ApprovalPolicy, Attachment, FileMention, MessageKind, ReasoningEffort, ReasoningSummary } from '../../types'
+import type { ApprovalPolicy, Attachment, FileMention, MessageKind, ReasoningEffort, ReasoningSummary, SandboxMode, SandboxPolicy } from '../../types'
 import { INIT_PROMPT } from '../../utils/init-prompt'
 import { filterSlashCommands, findSlashCommand, getSlashQuery, parseSlashInput, type SlashCommandDefinition } from '../../utils/slash-commands'
 import { approvalPolicyDescription, approvalPolicyLabel, normalizeApprovalPolicy } from '../../utils/approval-policy'
@@ -17,11 +17,21 @@ import { SessionDialogs } from '../session-view/session-dialogs'
 import { SessionEmpty } from '../session-view/session-empty'
 import { RateLimitBanner, isRateLimitError } from '../session-view/rate-limit-banner'
 
-type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
-type SandboxPolicy = { type: 'workspaceWrite' }
-
 const ALWAYS_ALLOW_SANDBOX_MODE: SandboxMode = 'workspace-write'
 const ALWAYS_ALLOW_SANDBOX_POLICY: SandboxPolicy = { type: 'workspaceWrite' }
+
+const resolveSandboxPolicy = (mode?: SandboxMode | null): SandboxPolicy | null => {
+  switch (mode) {
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    case 'read-only':
+      return { type: 'readOnly' }
+    case 'workspace-write':
+      return { type: 'workspaceWrite' }
+    default:
+      return null
+  }
+}
 
 export function SessionView() {
   const [inputValue, setInputValue] = useState('')
@@ -82,6 +92,7 @@ export function SessionView() {
     threadEfforts,
     threadApprovals,
     threadWebSearch,
+    threadSandboxes,
     threadTurnIds,
     threadTurnStartedAt,
     threadLastTurnDuration,
@@ -91,6 +102,7 @@ export function SessionView() {
     setThreadEffort,
     setThreadApproval,
     setThreadWebSearch,
+    setThreadSandbox,
     threadSummaries,
     setThreadSummary,
     threadCwds,
@@ -127,6 +139,7 @@ export function SessionView() {
   const selectedEffort = selectedThreadId ? threadEfforts[selectedThreadId] : undefined
   const effectiveEffort = selectedEffort ?? defaultEffort ?? null
   const selectedApproval = selectedThreadId ? threadApprovals[selectedThreadId] : undefined
+  const selectedSandbox = selectedThreadId ? threadSandboxes[selectedThreadId] : undefined
   const selectedSummary = selectedThreadId ? threadSummaries[selectedThreadId] : undefined
   const selectedCwd = selectedThreadId ? threadCwds[selectedThreadId] : undefined
   const selectedUsage = selectedThreadId ? threadTokenUsage[selectedThreadId] : undefined
@@ -218,6 +231,18 @@ export function SessionView() {
       description: approvalPolicyDescription(value),
     })
   )
+  const sandboxOptions: SelectOption[] = [
+    {
+      value: '',
+      label: 'Sandboxed',
+      description: 'Use configured sandbox settings',
+    },
+    {
+      value: 'danger-full-access',
+      label: 'Dangerously allow full access',
+      description: 'No filesystem sandbox (trusted only)',
+    },
+  ]
   const resumeCandidates = threadAccountId
     ? threads.filter((thread) => thread.accountId === threadAccountId)
     : []
@@ -445,6 +470,7 @@ export function SessionView() {
         summary: selectedSummary ?? null,
         cwd: selectedCwd ?? null,
         approvalPolicy: selectedApproval ?? null,
+        sandbox: selectedSandbox ?? null,
         createdAt: Date.now(),
       })
       setInputValue('')
@@ -490,9 +516,11 @@ export function SessionView() {
         }
         if (selectedApproval) {
           startParams.approvalPolicy = selectedApproval
-          if (selectedApproval === 'never') {
-            startParams.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
-          }
+        }
+        if (selectedSandbox) {
+          startParams.sandbox = selectedSandbox
+        } else if (selectedApproval === 'never') {
+          startParams.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
         }
         if (selectedWebSearch) {
           startParams.config = { 'features.web_search_request': true }
@@ -557,7 +585,8 @@ export function SessionView() {
           input.push({ type: 'image', url: attachment.url })
         }
       }
-      
+      const sandboxPolicyOverride = resolveSandboxPolicy(selectedSandbox)
+
       const params: {
         threadId: string
         input: Array<{ type: string; text?: string; url?: string; path?: string }>
@@ -579,9 +608,11 @@ export function SessionView() {
       }
       if (selectedApproval) {
         params.approvalPolicy = selectedApproval
-        if (selectedApproval === 'never') {
-          params.sandboxPolicy = ALWAYS_ALLOW_SANDBOX_POLICY
-        }
+      }
+      if (sandboxPolicyOverride) {
+        params.sandboxPolicy = sandboxPolicyOverride
+      } else if (selectedApproval === 'never') {
+        params.sandboxPolicy = ALWAYS_ALLOW_SANDBOX_POLICY
       }
       if (selectedSummary) {
         params.summary = selectedSummary
@@ -616,9 +647,11 @@ export function SessionView() {
     }
     if (approvalOverride) {
       params.approvalPolicy = approvalOverride
-      if (approvalOverride === 'never') {
-        params.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
-      }
+    }
+    if (selectedSandbox) {
+      params.sandbox = selectedSandbox
+    } else if (approvalOverride === 'never') {
+      params.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
     }
     if (webSearch) {
       params.config = { 'features.web_search_request': true }
@@ -667,6 +700,9 @@ export function SessionView() {
     const effort = result.reasoningEffort ?? defaultThreadModel?.defaultReasoningEffort
     if (effort) {
       setThreadEffort(threadId, effort)
+    }
+    if (selectedSandbox) {
+      setThreadSandbox(threadId, selectedSandbox)
     }
     if (selectedSummary) {
       setThreadSummary(threadId, selectedSummary)
@@ -733,6 +769,7 @@ export function SessionView() {
       `Reasoning summary: ${selectedSummary ?? 'default'}`,
       `Working directory: ${selectedCwd || 'default'}`,
       `Approvals: ${selectedApproval ?? 'default'}`,
+      `Sandbox: ${selectedSandbox ?? 'default'}`,
       `Connection: ${connectionStatus}`,
     ]
     if (usageLine) {
@@ -1535,6 +1572,17 @@ export function SessionView() {
         }}
         showModelSelect={models.length > 0}
         showEffortSelect={effortOptions.length > 0}
+        sandboxOptions={sandboxOptions}
+        effectiveSandbox={selectedSandbox ?? ''}
+        onSandboxChange={(value) => {
+          if (!selectedThreadId) return
+          if (!value) {
+            setThreadSandbox(selectedThreadId, null)
+            return
+          }
+          setThreadSandbox(selectedThreadId, value as SandboxMode)
+        }}
+        showSandboxSelect
         queuedCount={queuedCount}
         webSearchEnabled={webSearchEnabled}
         onWebSearchToggle={() => {

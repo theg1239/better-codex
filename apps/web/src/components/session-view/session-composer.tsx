@@ -28,6 +28,10 @@ interface SessionComposerProps {
   onEffortChange: (value: string) => void
   showModelSelect: boolean
   showEffortSelect: boolean
+  sandboxOptions: SelectOption[]
+  effectiveSandbox: string
+  onSandboxChange: (value: string) => void
+  showSandboxSelect: boolean
   queuedCount: number
   webSearchEnabled: boolean
   onWebSearchToggle: () => void
@@ -65,6 +69,10 @@ export const SessionComposer = ({
   onEffortChange,
   showModelSelect,
   showEffortSelect,
+  sandboxOptions,
+  effectiveSandbox,
+  onSandboxChange,
+  showSandboxSelect,
   queuedCount,
   webSearchEnabled,
   onWebSearchToggle,
@@ -290,6 +298,18 @@ export const SessionComposer = ({
                   size="sm"
                   disabled={!canInteract}
                   label="Reasoning Effort"
+                />
+              )}
+              {showSandboxSelect && (
+                <Select
+                  options={sandboxOptions}
+                  value={effectiveSandbox}
+                  onChange={onSandboxChange}
+                  placeholder="Sandbox"
+                  size="sm"
+                  disabled={!canInteract}
+                  className="min-w-[150px] sm:min-w-[220px] shrink-0"
+                  label="Sandbox"
                 />
               )}
             </div>

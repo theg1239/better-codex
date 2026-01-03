@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useAppStore } from '../../store'
 import { hubClient } from '../../services/hub-client'
-import { Avatar, Button, Dialog, IconButton, Icons, SectionHeader, AlertDialog, PromptDialog, CopyDialog } from '../ui'
+import { refreshAccountSnapshot } from '../../utils/account-refresh'
+import { Avatar, Button, Dialog, IconButton, Icons, SectionHeader, AlertDialog, CopyDialog } from '../ui'
 import { AccountUsagePanel } from './account-usage-panel'
 import { SettingsDialog } from './settings-dialog'
 
@@ -9,13 +10,24 @@ interface SidebarProps {
   onNavigate?: () => void
 }
 
+type AuthMethod = 'chatgpt' | 'apiKey'
+
 export function Sidebar({ onNavigate }: SidebarProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
-  const [showPrompt, setShowPrompt] = useState(false)
+  const [showAddDialog, setShowAddDialog] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [authPendingId, setAuthPendingId] = useState<string | null>(null)
+  const [authDialog, setAuthDialog] = useState<{
+    open: boolean
+    mode: 'create' | 'login'
+    accountId?: string
+    accountName?: string
+  }>({ open: false, mode: 'create' })
+  const [authMethod, setAuthMethod] = useState<AuthMethod>('chatgpt')
+  const [authApiKey, setAuthApiKey] = useState('')
+  const [newAccountName, setNewAccountName] = useState('')
   const [removeDialog, setRemoveDialog] = useState<{ open: boolean; accountId: string; name: string }>({
     open: false,
     accountId: '',
@@ -43,6 +55,8 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     setShowAnalytics,
     showReviews,
     setShowReviews,
+    setAccountLoginId,
+    setModelsForAccount,
   } = useAppStore()
 
   const getStatusColor = (status: 'online' | 'degraded' | 'offline') => {
@@ -53,7 +67,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
     }
   }
 
-  const handleChatgptAuth = async (accountId: string) => {
+  const resetAuthDialog = () => {
+    setAuthMethod('chatgpt')
+    setAuthApiKey('')
+    setNewAccountName('')
+  }
+
+  const handleAccountAuth = async (accountId: string, method: AuthMethod, apiKey?: string): Promise<boolean> => {
     if (connectionStatus !== 'connected') {
       setAlertDialog({
         open: true,
@@ -61,27 +81,37 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         message: 'Backend not connected. Start the hub and refresh the page.',
         variant: 'error',
       })
-      return
+      return false
     }
     setAuthPendingId(accountId)
     updateAccount(accountId, (prev) => ({ ...prev, status: 'degraded' }))
     try {
       const login = (await hubClient.request(accountId, 'account/login/start', {
-        type: 'chatgpt',
-      })) as { authUrl?: string }
+        type: method,
+        apiKey: method === 'apiKey' ? apiKey : undefined,
+      })) as { authUrl?: string; loginId?: string }
+      if (login?.loginId) {
+        setAccountLoginId(accountId, login.loginId)
+      }
       if (login?.authUrl) {
         const opened = window.open(login.authUrl, '_blank', 'noopener,noreferrer')
         if (!opened) {
           setCopyDialog({ open: true, url: login.authUrl })
         }
       }
+      if (method === 'apiKey') {
+        setAccountLoginId(accountId, null)
+        await refreshAccountSnapshot(accountId, updateAccount, setModelsForAccount)
+      }
+      return true
     } catch {
       setAlertDialog({
         open: true,
         title: 'Sign In Failed',
-        message: 'Unable to start ChatGPT sign-in. Please try again.',
+        message: `Unable to start ${method === 'apiKey' ? 'API key' : 'ChatGPT'} sign-in. Please try again.`,
         variant: 'error',
       })
+      return false
     } finally {
       setAuthPendingId(null)
     }
@@ -145,7 +175,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        void handleChatgptAuth(account.id)
+                        setAuthDialog({
+                          open: true,
+                          mode: 'login',
+                          accountId: account.id,
+                          accountName: account.name,
+                        })
+                        resetAuthDialog()
                       }}
                       disabled={authPendingId === account.id}
                       className="text-[10px] text-accent-green hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -209,56 +245,236 @@ export function Sidebar({ onNavigate }: SidebarProps) {
               })
               return
             }
-            setShowPrompt(true)
+            setShowAddDialog(true)
+            resetAuthDialog()
           }}
         >
           <Icons.Plus className="w-3.5 h-3.5" />
           Add Account
         </button>
 
-        <PromptDialog
-          open={showPrompt}
-          onClose={() => setShowPrompt(false)}
-          onSubmit={async (name) => {
-            if (isAdding) return
-            setIsAdding(true)
-            try {
-              const profile = await hubClient.createProfile(name)
-              addAccount({
-                id: profile.id,
-                name: profile.name,
-                email: '',
-                plan: 'Unknown',
-                status: 'offline',
-                rateLimit: 0,
-              })
-              setSelectedAccountId(profile.id)
-              await hubClient.startProfile(profile.id)
-              updateAccount(profile.id, (prev) => ({ ...prev, status: 'degraded' }))
-              const login = (await hubClient.request(profile.id, 'account/login/start', {
-                type: 'chatgpt',
-              })) as { authUrl?: string }
-              if (login?.authUrl) {
-                const opened = window.open(login.authUrl, '_blank', 'noopener,noreferrer')
-                if (!opened) {
-                  setCopyDialog({ open: true, url: login.authUrl })
-                }
-              }
-            } catch {
-              setAlertDialog({
-                open: true,
-                title: 'Error',
-                message: 'Failed to create account. Please try again.',
-                variant: 'error',
-              })
-            } finally {
-              setIsAdding(false)
-            }
+        <Dialog
+          open={showAddDialog}
+          onClose={() => {
+            setShowAddDialog(false)
+            resetAuthDialog()
           }}
           title="Add Account"
-          placeholder="Account name..."
-          submitLabel="Create"
-        />
+        >
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault()
+              if (isAdding) return
+              const name = newAccountName.trim()
+              if (!name) return
+              if (authMethod === 'apiKey' && !authApiKey.trim()) return
+              setIsAdding(true)
+              try {
+                const profile = await hubClient.createProfile(name)
+                addAccount({
+                  id: profile.id,
+                  name: profile.name,
+                  email: '',
+                  plan: 'Unknown',
+                  status: 'offline',
+                  rateLimit: 0,
+                })
+                setSelectedAccountId(profile.id)
+                await hubClient.startProfile(profile.id)
+                updateAccount(profile.id, (prev) => ({ ...prev, status: 'degraded' }))
+                const success = await handleAccountAuth(profile.id, authMethod, authApiKey.trim() || undefined)
+                if (success) {
+                  setShowAddDialog(false)
+                }
+              } catch {
+                setAlertDialog({
+                  open: true,
+                  title: 'Error',
+                  message: 'Failed to create account. Please try again.',
+                  variant: 'error',
+                })
+              } finally {
+                setIsAdding(false)
+              }
+            }}
+          >
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Account name</div>
+                <input
+                  value={newAccountName}
+                  onChange={(event) => setNewAccountName(event.target.value)}
+                  placeholder="Personal, Team, or Client..."
+                  className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">Sign-in method</div>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('chatgpt')}
+                    className={`flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                      authMethod === 'chatgpt'
+                        ? 'border-accent-green bg-accent-green/10 text-text-primary'
+                        : 'border-border bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-semibold">ChatGPT sign-in</div>
+                      <div className="text-[10px] text-text-muted">Opens a browser window to authorize.</div>
+                    </div>
+                    <Icons.ArrowRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('apiKey')}
+                    className={`flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                      authMethod === 'apiKey'
+                        ? 'border-accent-blue bg-accent-blue/10 text-text-primary'
+                        : 'border-border bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                    }`}
+                  >
+                    <div>
+                      <div className="text-xs font-semibold">API key</div>
+                      <div className="text-[10px] text-text-muted">Use a key instead of browser auth.</div>
+                    </div>
+                    <Icons.Key className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              {authMethod === 'apiKey' && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">API key</div>
+                  <input
+                    type="password"
+                    value={authApiKey}
+                    onChange={(event) => setAuthApiKey(event.target.value)}
+                    placeholder="sk-..."
+                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+                  />
+                  <p className="text-[11px] text-text-muted">Stored locally by the hub.</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAddDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={
+                  isAdding ||
+                  !newAccountName.trim() ||
+                  (authMethod === 'apiKey' && !authApiKey.trim())
+                }
+              >
+                {isAdding ? 'Creating...' : 'Create & Connect'}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
+
+        <Dialog
+          open={authDialog.open}
+          onClose={() => {
+            setAuthDialog({ open: false, mode: 'create' })
+            resetAuthDialog()
+          }}
+          title={`Sign in ${authDialog.accountName ? `• ${authDialog.accountName}` : ''}`}
+        >
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault()
+              if (!authDialog.accountId) return
+              if (authMethod === 'apiKey' && !authApiKey.trim()) return
+              const success = await handleAccountAuth(
+                authDialog.accountId,
+                authMethod,
+                authApiKey.trim() || undefined
+              )
+              if (success) {
+                setAuthDialog({ open: false, mode: 'create' })
+              }
+            }}
+          >
+            <div className="space-y-4">
+              <div className="text-xs text-text-muted">
+                Choose how you want to authenticate this account. ChatGPT is the fastest option, but API keys work offline.
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAuthMethod('chatgpt')}
+                  className={`flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                    authMethod === 'chatgpt'
+                      ? 'border-accent-green bg-accent-green/10 text-text-primary'
+                      : 'border-border bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                  }`}
+                >
+                  <div>
+                    <div className="text-xs font-semibold">ChatGPT sign-in</div>
+                    <div className="text-[10px] text-text-muted">Opens a browser window to authorize.</div>
+                  </div>
+                  <Icons.ArrowRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMethod('apiKey')}
+                  className={`flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+                    authMethod === 'apiKey'
+                      ? 'border-accent-blue bg-accent-blue/10 text-text-primary'
+                      : 'border-border bg-bg-tertiary text-text-secondary hover:bg-bg-hover'
+                  }`}
+                >
+                  <div>
+                    <div className="text-xs font-semibold">API key</div>
+                    <div className="text-[10px] text-text-muted">Use a key instead of browser auth.</div>
+                  </div>
+                  <Icons.Key className="w-4 h-4" />
+                </button>
+              </div>
+              {authMethod === 'apiKey' && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-text-muted">API key</div>
+                  <input
+                    type="password"
+                    value={authApiKey}
+                    onChange={(event) => setAuthApiKey(event.target.value)}
+                    placeholder="sk-..."
+                    className="w-full bg-bg-tertiary border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted outline-none focus:border-text-muted transition-colors"
+                  />
+                  <p className="text-[11px] text-text-muted">Stored locally by the hub.</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setAuthDialog({ open: false, mode: 'create' })}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={
+                  !authDialog.accountId ||
+                  (authMethod === 'apiKey' && !authApiKey.trim()) ||
+                  authPendingId === authDialog.accountId
+                }
+              >
+                {authPendingId === authDialog.accountId ? 'Connecting...' : 'Connect'}
+              </Button>
+            </div>
+          </form>
+        </Dialog>
 
         <AlertDialog
           open={alertDialog.open}

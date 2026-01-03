@@ -339,6 +339,15 @@ class HubClient {
     return data.threads ?? []
   }
 
+  async clearActiveThread(params: { profileId: string; threadId: string }): Promise<void> {
+    const url = new URL(`/threads/active/${params.threadId}`, HUB_URL)
+    url.searchParams.set('profileId', params.profileId)
+    const response = await fetch(url.toString(), { method: 'DELETE' })
+    if (!response.ok) {
+      throw new Error('Failed to clear active thread')
+    }
+  }
+
   async listReviews(params?: { profileId?: string; limit?: number; offset?: number }): Promise<ReviewSessionResult[]> {
     const url = new URL('/reviews', HUB_URL)
     if (params?.profileId) url.searchParams.set('profileId', params.profileId)

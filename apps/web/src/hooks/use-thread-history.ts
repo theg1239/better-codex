@@ -189,6 +189,7 @@ export const useThreadHistory = () => {
     setThreadApproval,
     setThreadCwd,
     setThreadTurnId,
+    setThreadTurnStartedAt,
   } = useAppStore()
 
   const inFlight = useRef<Set<string>>(new Set())
@@ -238,12 +239,35 @@ export const useThreadHistory = () => {
 
         let activeTurn: TurnData | null = null
         for (let index = turns.length - 1; index >= 0; index -= 1) {
-          if (isTurnInProgress(turns[index]?.status)) {
+          const turnStatus = turns[index]?.status
+          if (isTurnInProgress(turnStatus)) {
             activeTurn = turns[index]
             break
           }
         }
+        
         setThreadTurnId(selectedThreadId, activeTurn?.id ?? null)
+        
+        // If there's an active turn, ensure startedAt is set (may have been set by hub connection)
+        if (activeTurn) {
+          const existingStartedAt = useAppStore.getState().threadTurnStartedAt[selectedThreadId]
+          if (!existingStartedAt) {
+            // Use current time as fallback if no startedAt was set
+            setThreadTurnStartedAt(selectedThreadId, Date.now())
+          }
+        } else {
+          // No active turn according to codex - check if backend thought it was active
+          const existingStartedAt = useAppStore.getState().threadTurnStartedAt[selectedThreadId]
+          if (existingStartedAt) {
+            // Backend had stale data - notify it to clear the active thread
+            console.log('[useThreadHistory] Clearing stale active thread from backend:', { threadId: selectedThreadId, profileId: thread.accountId })
+            hubClient.clearActiveThread({ profileId: thread.accountId, threadId: selectedThreadId }).catch((err) => {
+              console.error('[useThreadHistory] Failed to clear stale active thread:', err)
+            })
+          }
+          setThreadTurnStartedAt(selectedThreadId, null)
+        }
+        
         const nextStatus = thread.status === 'archived'
           ? 'archived'
           : activeTurn
@@ -294,6 +318,7 @@ export const useThreadHistory = () => {
     threads,
     updateThread,
     setThreadTurnId,
+    setThreadTurnStartedAt,
     setThreadCwd,
   ])
 }

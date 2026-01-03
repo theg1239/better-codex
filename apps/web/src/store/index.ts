@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Account, Thread, Message, ApprovalRequest, TabType, ModelInfo, ReasoningEffort, ReasoningSummary, ApprovalPolicy, QueuedMessage, ReviewSession } from '../types'
+import type { Account, Thread, Message, ApprovalRequest, TabType, ModelInfo, ReasoningEffort, ReasoningSummary, ApprovalPolicy, QueuedMessage, ReviewSession, SandboxMode } from '../types'
 
 interface AppState {
   accounts: Account[]
@@ -16,6 +16,7 @@ interface AppState {
   threadCwds: Record<string, string>
   threadApprovals: Record<string, ApprovalPolicy>
   threadWebSearch: Record<string, boolean>
+  threadSandboxes: Record<string, SandboxMode>
   threadTurnIds: Record<string, string>
   threadTurnStartedAt: Record<string, number>
   threadLastTurnDuration: Record<string, number>
@@ -56,6 +57,7 @@ interface AppState {
   setThreadSummary: (threadId: string, summary: ReasoningSummary) => void
   setThreadCwd: (threadId: string, cwd: string) => void
   setThreadApproval: (threadId: string, approval: ApprovalPolicy) => void
+  setThreadSandbox: (threadId: string, sandbox: SandboxMode | null) => void
   setThreadWebSearch: (threadId: string, enabled: boolean) => void
   setThreadTurnId: (threadId: string, turnId: string | null) => void
   setThreadTurnStartedAt: (threadId: string, startedAt: number | null) => void
@@ -106,6 +108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   threadCwds: {},
   threadApprovals: {},
   threadWebSearch: {},
+  threadSandboxes: {},
   threadTurnIds: {},
   threadTurnStartedAt: {},
   threadLastTurnDuration: {},
@@ -157,6 +160,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const threadApprovals = Object.fromEntries(
       Object.entries(state.threadApprovals).filter(([threadId]) => remainingThreadIds.has(threadId))
     )
+    const threadSandboxes = Object.fromEntries(
+      Object.entries(state.threadSandboxes).filter(([threadId]) => remainingThreadIds.has(threadId))
+    )
     const threadTokenUsage = Object.fromEntries(
       Object.entries(state.threadTokenUsage).filter(([threadId]) => remainingThreadIds.has(threadId))
     )
@@ -180,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       threadSummaries,
       threadCwds,
       threadApprovals,
+      threadSandboxes,
       threadTokenUsage,
       modelsByAccount,
       accountLoginIds,
@@ -227,6 +234,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     ),
     threadCwds: Object.fromEntries(
       Object.entries(state.threadCwds).filter(([threadId]) => threadId !== id)
+    ),
+    threadSandboxes: Object.fromEntries(
+      Object.entries(state.threadSandboxes).filter(([threadId]) => threadId !== id)
     ),
     threadTokenUsage: Object.fromEntries(
       Object.entries(state.threadTokenUsage).filter(([threadId]) => threadId !== id)
@@ -291,6 +301,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       [threadId]: approval,
     },
   })),
+  setThreadSandbox: (threadId, sandbox) => set((state) => {
+    if (!sandbox) {
+      const next = { ...state.threadSandboxes }
+      delete next[threadId]
+      return { threadSandboxes: next }
+    }
+    return {
+      threadSandboxes: {
+        ...state.threadSandboxes,
+        [threadId]: sandbox,
+      },
+    }
+  }),
   setThreadWebSearch: (threadId, enabled) => set((state) => ({
     threadWebSearch: {
       ...state.threadWebSearch,

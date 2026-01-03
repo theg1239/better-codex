@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { hubClient, type HubProfile } from '../services/hub-client'
 import { useAppStore } from '../store'
-import type { Account, Thread } from '../types'
+import type { Account, Thread, SandboxMode, SandboxPolicy } from '../types'
 import { buildSystemMessage } from '../utils/item-format'
 import { accountStatusFromRead, parseUsage, refreshAccountSnapshot, fetchAllModels, type AccountReadResult, type RateLimitResult } from '../utils/account-refresh'
 
@@ -18,6 +18,21 @@ type ItemPayload = { id?: string; type?: string } & Record<string, unknown>
 
 const isThreadItem = (item: ItemPayload | undefined): item is { id: string; type: string } & Record<string, unknown> =>
   !!item && typeof item.id === 'string' && typeof item.type === 'string'
+
+const resolveSandboxPolicy = (mode?: SandboxMode | null): SandboxPolicy | null => {
+  switch (mode) {
+    case 'danger-full-access':
+      return { type: 'dangerFullAccess' }
+    case 'read-only':
+      return { type: 'readOnly' }
+    case 'workspace-write':
+      return { type: 'workspaceWrite' }
+    default:
+      return null
+  }
+}
+
+const ALWAYS_ALLOW_SANDBOX_POLICY: SandboxPolicy = { type: 'workspaceWrite' }
 
 const formatDate = (timestamp?: number): string => {
   if (!timestamp) {
@@ -145,6 +160,9 @@ export const useHubConnection = () => {
       })
       updateThread(threadId, { status: 'active' })
       try {
+        const sandboxPolicy = resolveSandboxPolicy(next.sandbox)
+        const effectiveSandboxPolicy =
+          sandboxPolicy ?? (next.approvalPolicy === 'never' ? ALWAYS_ALLOW_SANDBOX_POLICY : null)
         await hubClient.request(profileId, 'turn/start', {
           threadId,
           input: [{ type: 'text', text: next.text }],
@@ -153,6 +171,7 @@ export const useHubConnection = () => {
           summary: next.summary ?? undefined,
           cwd: next.cwd ?? undefined,
           approvalPolicy: next.approvalPolicy ?? undefined,
+          sandboxPolicy: effectiveSandboxPolicy ?? undefined,
         })
       } catch (error) {
         console.error(error)

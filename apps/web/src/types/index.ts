@@ -6,6 +6,11 @@ export type TabType = 'sessions' | 'reviews' | 'archive'
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none'
 export type ApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never'
+export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+export type SandboxPolicy =
+  | { type: 'dangerFullAccess' }
+  | { type: 'readOnly' }
+  | { type: 'workspaceWrite'; networkAccess?: boolean }
 export type ReviewStatus = 'pending' | 'running' | 'completed' | 'failed'
 
 export type CommandAction =
@@ -104,6 +109,7 @@ export interface QueuedMessage {
   summary?: ReasoningSummary | null
   cwd?: string | null
   approvalPolicy?: ApprovalPolicy | null
+  sandbox?: SandboxMode | null
   createdAt: number
 }
 

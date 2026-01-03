@@ -371,6 +371,25 @@ const app = new Elysia()
       }),
     }
   )
+  .delete(
+    '/threads/active/:threadId',
+    ({ params, query }) => {
+      const profileId = typeof query.profileId === 'string' ? query.profileId : undefined
+      if (!profileId) {
+        return { ok: false, error: 'profileId is required' }
+      }
+      threadActivity.markCompleted(profileId, params.threadId)
+      return { ok: true }
+    },
+    {
+      params: t.Object({
+        threadId: t.String(),
+      }),
+      query: t.Object({
+        profileId: t.String(),
+      }),
+    }
+  )
   .post(
     '/threads/reindex',
     async ({ body }) => {
