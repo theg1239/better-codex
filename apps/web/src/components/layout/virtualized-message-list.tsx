@@ -379,7 +379,7 @@ function getActionType(msg: Message): AssistantAction['type'] {
     if (title.includes('read') || title.includes('view') || title.includes('list')) return 'explored'
     if (title.includes('edit') || title.includes('wrote') || title.includes('creat')) return 'edited'
     if (title.includes('ran') || title.includes('exec') || title.includes('command')) return 'ran'
-    return 'explored'
+    return 'chat'
   }
   return 'chat'
 }
@@ -444,10 +444,11 @@ function getActionLabel(type: AssistantAction['type'], messages: Message[]): { l
   }
 }
 
+const hasBoldHeadline = (content: string) => /\*\*.+?\*\*/u.test(content)
+
 const extractReasoningHeadline = (content: string) => {
-  const match = content.match(/(?:^|\n)\s*\*\*(.+?)\*\*/u)
-  if (match?.[1]) {
-    return match[1].trim()
+  if (hasBoldHeadline(content)) {
+    return null
   }
   const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean)
   return firstLine || null
@@ -1057,6 +1058,7 @@ function ActionRow({ action }: { action: AssistantAction }) {
     const content = action.messages.map(m => m.content).join('\n\n')
     const trimmed = content.trim().toLowerCase()
     const isPlaceholder = !trimmed || trimmed === 'reasoning' || trimmed === 'reasoning summary' || trimmed === 'thinking'
+    const isSummary = !hasBoldHeadline(content)
     
     if (isPlaceholder) {
       return (
@@ -1064,6 +1066,10 @@ function ActionRow({ action }: { action: AssistantAction }) {
           <ThinkingIndicator message="Thinking" />
         </div>
       )
+    }
+
+    if (isSummary) {
+      return null
     }
     
     return (

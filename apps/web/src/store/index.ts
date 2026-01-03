@@ -111,7 +111,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   threadLastTurnDuration: {},
   threadTokenUsage: {},
   threadPendingAccountSwitch: {},
-  backendToUiThreadId: {},
+  backendToUiThreadId: (() => {
+    try {
+      const stored = localStorage.getItem('backendToUiThreadId')
+      return stored ? JSON.parse(stored) : {}
+    } catch {
+      return {}
+    }
+  })(),
   messages: {},
   queuedMessages: {},
   approvals: [],
@@ -345,16 +352,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   }),
   setBackendToUiThreadId: (backendThreadId, uiThreadId) => set((state) => {
+    let newMapping: Record<string, string>
     if (uiThreadId === null) {
       const { [backendThreadId]: _, ...rest } = state.backendToUiThreadId
-      return { backendToUiThreadId: rest }
-    }
-    return {
-      backendToUiThreadId: {
+      newMapping = rest
+    } else {
+      newMapping = {
         ...state.backendToUiThreadId,
         [backendThreadId]: uiThreadId,
-      },
+      }
     }
+    try {
+      localStorage.setItem('backendToUiThreadId', JSON.stringify(newMapping))
+    } catch {
+    }
+    return { backendToUiThreadId: newMapping }
   }),
   resolveThreadId: (threadId: string): string => {
     const state = get()

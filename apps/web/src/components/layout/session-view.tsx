@@ -17,6 +17,12 @@ import { SessionDialogs } from '../session-view/session-dialogs'
 import { SessionEmpty } from '../session-view/session-empty'
 import { RateLimitBanner, isRateLimitError } from '../session-view/rate-limit-banner'
 
+type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
+type SandboxPolicy = { type: 'workspaceWrite' }
+
+const ALWAYS_ALLOW_SANDBOX_MODE: SandboxMode = 'workspace-write'
+const ALWAYS_ALLOW_SANDBOX_POLICY: SandboxPolicy = { type: 'workspaceWrite' }
+
 export function SessionView() {
   const [inputValue, setInputValue] = useState('')
   const [slashIndex, setSlashIndex] = useState(0)
@@ -473,12 +479,20 @@ export function SessionView() {
         const newAccountId = selectedThread.accountId
         const accountModels = modelsByAccount[newAccountId] || []
         const defaultThreadModel = accountModels.find((model) => model.isDefault) ?? accountModels[0]
-        const startParams: { model?: string; approvalPolicy?: ApprovalPolicy; config?: Record<string, unknown> } = {}
+        const startParams: {
+          model?: string
+          approvalPolicy?: ApprovalPolicy
+          sandbox?: SandboxMode
+          config?: Record<string, unknown>
+        } = {}
         if (defaultThreadModel?.id) {
           startParams.model = defaultThreadModel.id
         }
         if (selectedApproval) {
           startParams.approvalPolicy = selectedApproval
+          if (selectedApproval === 'never') {
+            startParams.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
+          }
         }
         if (selectedWebSearch) {
           startParams.config = { 'features.web_search_request': true }
@@ -552,6 +566,7 @@ export function SessionView() {
         summary?: ReasoningSummary
         cwd?: string
         approvalPolicy?: ApprovalPolicy
+        sandboxPolicy?: SandboxPolicy
       } = {
         threadId: actualThreadId,
         input,
@@ -564,6 +579,9 @@ export function SessionView() {
       }
       if (selectedApproval) {
         params.approvalPolicy = selectedApproval
+        if (selectedApproval === 'never') {
+          params.sandboxPolicy = ALWAYS_ALLOW_SANDBOX_POLICY
+        }
       }
       if (selectedSummary) {
         params.summary = selectedSummary
@@ -587,12 +605,20 @@ export function SessionView() {
   const startNewThread = async (accountId: string, approvalOverride?: ApprovalPolicy | null, webSearch?: boolean) => {
     const accountModels = modelsByAccount[accountId] || []
     const defaultThreadModel = accountModels.find((model) => model.isDefault) ?? accountModels[0]
-    const params: { model?: string; approvalPolicy?: ApprovalPolicy; config?: Record<string, unknown> } = {}
+    const params: {
+      model?: string
+      approvalPolicy?: ApprovalPolicy
+      sandbox?: SandboxMode
+      config?: Record<string, unknown>
+    } = {}
     if (defaultThreadModel?.id) {
       params.model = defaultThreadModel.id
     }
     if (approvalOverride) {
       params.approvalPolicy = approvalOverride
+      if (approvalOverride === 'never') {
+        params.sandbox = ALWAYS_ALLOW_SANDBOX_MODE
+      }
     }
     if (webSearch) {
       params.config = { 'features.web_search_request': true }
@@ -1343,7 +1369,7 @@ export function SessionView() {
     }
   }
 
-  const handleSwitchThreadAccount = (newAccountId: string) => {
+  const handleSwitchThreadAccount = async (newAccountId: string) => {
     if (!selectedThreadId || !selectedThread) {
       return
     }
@@ -1360,6 +1386,27 @@ export function SessionView() {
     }
 
     const previousAccountId = selectedThread.accountId
+    const previousAccount = accounts.find((a) => a.id === previousAccountId)
+
+    // If a task is running on the current account, interrupt it first
+    if (isTaskRunning && previousAccount) {
+      const turnId = threadTurnIds[selectedThreadId]
+      if (turnId) {
+        try {
+          await hubClient.request(previousAccount.id, 'turn/interrupt', {
+            threadId: effectiveBackendThreadId,
+            turnId,
+          })
+          // Wait a moment for the interrupt to process
+          await new Promise((resolve) => setTimeout(resolve, 200))
+        } catch {
+          // Continue with switch even if interrupt fails
+          console.warn('Failed to interrupt turn before account switch')
+        }
+      }
+      // Reset thread status
+      updateThread(selectedThreadId, { status: 'idle' })
+    }
 
     // Mark this thread as having a pending account switch
     // The next message sent will start a fresh conversation on the new account
