@@ -361,8 +361,12 @@ class HubClient {
     return data.sessions ?? []
   }
 
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+  }
+
   private async sendRequest(profileId: string, method: string, params?: unknown): Promise<unknown> {
-    if (!this.ws) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.error('[HubClient] WebSocket not connected')
       throw new Error('WebSocket not connected')
     }

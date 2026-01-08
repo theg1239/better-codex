@@ -96,9 +96,15 @@ export const accountStatusFromRead = (result: AccountReadResult): AccountStatus 
 }
 
 export const fetchAllModels = async (profileId: string): Promise<ModelInfo[]> => {
+  if (!hubClient.isConnected()) {
+    return []
+  }
   const models: ModelInfo[] = []
   let cursor: string | null = null
   for (let page = 0; page < 10; page += 1) {
+    if (!hubClient.isConnected()) {
+      return models
+    }
     let result: ModelListResult | null = null
     try {
       result = (await hubClient.request(profileId, 'model/list', {
@@ -125,6 +131,9 @@ export const refreshAccountSnapshot = async (
   updateAccount: (id: string, updater: (account: Account) => Account) => void,
   setModelsForAccount: (id: string, models: ModelInfo[]) => void
 ): Promise<void> => {
+  if (!hubClient.isConnected()) {
+    return
+  }
   let accountResult: AccountReadResult | null = null
   try {
     accountResult = (await hubClient.request(profileId, 'account/read', {

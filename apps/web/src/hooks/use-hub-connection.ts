@@ -123,6 +123,9 @@ export const useHubConnection = () => {
       method: string,
       params?: unknown
     ): Promise<T | null> => {
+      if (disposed || !hubClient.isConnected()) {
+        return null
+      }
       try {
         return (await hubClient.request(profileId, method, params)) as T
       } catch (error) {

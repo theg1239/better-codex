@@ -74,7 +74,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   }
 
   const handleAccountAuth = async (accountId: string, method: AuthMethod, apiKey?: string): Promise<boolean> => {
-    if (connectionStatus !== 'connected') {
+    if (connectionStatus !== 'connected' || !hubClient.isConnected()) {
       setAlertDialog({
         open: true,
         title: 'Not Connected',

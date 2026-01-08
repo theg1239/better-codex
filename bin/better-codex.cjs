@@ -153,6 +153,7 @@ const isRoot = (dir) =>
   existsSync(join(dir, 'apps', 'web', 'package.json'));
 
 const findRoot = (explicit) => {
+  // If --root is provided, honor it as-is (after validation).
   if (explicit) {
     const resolved = resolve(explicit);
     if (isRoot(resolved)) {
@@ -161,6 +162,8 @@ const findRoot = (explicit) => {
     throw new Error(`Specified root does not contain apps/: ${explicit}`);
   }
 
+  // Prefer the directory the command is executed from (or an ancestor),
+  // never the installed package directory.
   let current = resolve(process.cwd());
   for (let depth = 0; depth < 8; depth += 1) {
     if (isRoot(current)) {
@@ -171,21 +174,9 @@ const findRoot = (explicit) => {
     current = parent;
   }
 
-  const bundledRoot = resolve(dirname(__filename), '..');
-  if (isRoot(bundledRoot)) {
-    return bundledRoot;
-  }
-
-  const npmGlobalRoot = resolve(dirname(__filename), '..', '..');
-  const npmPackageRoot = join(npmGlobalRoot, 'better-codex');
-  if (isRoot(npmPackageRoot)) {
-    return npmPackageRoot;
-  }
-
   throw new Error(
-    `Could not locate Better Codex apps.\n` +
-      `The bundled apps may be missing. Try reinstalling:\n` +
-      `  ${c.cyan}npm install -g better-codex${c.reset}`
+    `Could not locate Better Codex apps starting from ${process.cwd()}.\n` +
+      `Run the CLI from your project root or pass ${c.cyan}--root <path>${c.reset}.`
   );
 };
 
