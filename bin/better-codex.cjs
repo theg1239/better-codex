@@ -162,8 +162,14 @@ const findRoot = (explicit) => {
     throw new Error(`Specified root does not contain apps/: ${explicit}`);
   }
 
-  // Prefer the directory the command is executed from (or an ancestor),
-  // never the installed package directory.
+  // First, check if apps/ exists relative to this script (npm global install).
+  const scriptDir = __dirname;
+  const packageRoot = dirname(scriptDir);
+  if (isRoot(packageRoot)) {
+    return packageRoot;
+  }
+
+  // Fall back to searching from cwd (for development).
   let current = resolve(process.cwd());
   for (let depth = 0; depth < 8; depth += 1) {
     if (isRoot(current)) {
@@ -230,7 +236,8 @@ const runWeb = (options) => {
   log.success(`Bun ${c.dim}v${bunVersion}${c.reset}`);
 
   const root = findRoot(options.root);
-  log.success(`Project root: ${c.dim}${root}${c.reset}`);
+  const workspaceDir = resolve(process.cwd());
+  log.success(`Workspace: ${c.dim}${workspaceDir}${c.reset}`);
 
   const backendDir = join(root, 'apps', 'backend');
   const webDir = join(root, 'apps', 'web');
