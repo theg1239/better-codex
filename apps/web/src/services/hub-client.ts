@@ -161,7 +161,7 @@ class HubClient {
     if (this.ws?.readyState === WebSocket.OPEN) {
       return
     }
-    const token = await getHubToken()
+    const token = await getHubToken({ forceRefresh: true })
     if (!token) {
       throw new Error('Missing hub token - backend may not be running')
     }

@@ -5,13 +5,13 @@ export const HUB_URL =
 
 let cachedToken: string | null = null
 
-export const getHubToken = async (): Promise<string> => {
+export const getHubToken = async (options?: { forceRefresh?: boolean }): Promise<string> => {
   const envToken = import.meta.env.VITE_CODEX_HUB_TOKEN
   if (envToken) {
     return envToken
   }
 
-  if (!cachedToken) {
+  if (!cachedToken || options?.forceRefresh) {
     try {
       const response = await fetch(`${HUB_URL}/config`)
       if (response.ok) {
